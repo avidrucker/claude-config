@@ -1,6 +1,6 @@
 ---
 name: forvo-audio
-description: Download native-speaker pronunciation audio from Forvo for personal study. Use when the user asks for "forvo" audio, "pronunciation audio", "native audio for my cards", to grab a specific Forvo speaker's recordings, or as the audio step of anki-gen (GH #3).
+description: Download native-speaker pronunciation audio from Forvo (and optionally top Wikipedia images) for personal study. Use when the user asks for "forvo" audio, "pronunciation audio", "native audio for my cards", a Wikipedia image for vocab cards, to grab a specific Forvo speaker's recordings, or as the audio/image step of anki-gen (GH #3).
 ---
 
 # forvo-audio — native pronunciation audio for cards
@@ -18,16 +18,35 @@ node skills/forvo-audio/scripts/forvo-scrape.mjs --words-file list.txt [--lang e
 
 # Every recording by one speaker (e.g. a trusted native voice):
 node skills/forvo-audio/scripts/forvo-scrape.mjs --user Steve04 [--lang es] [--max-pages N]
+
+# Add a Wikipedia image per word (audio + image), or images only (no browser):
+node skills/forvo-audio/scripts/forvo-scrape.mjs --word hola --images
+node skills/forvo-audio/scripts/forvo-scrape.mjs --words-file list.txt --images-only
 ```
 
 - `--lang` defaults to `es`; `--out` defaults to `~/Downloads`.
 - Files land as `forvo_<word>_<speaker>.mp3` (accent-stripped slug — matches the
-  `[sound:...]` convention already used in the deck).
+  `[sound:...]` convention already used in the deck). Images land as `wiki_<word>.<ext>`.
 - Each unit prints one JSON line to stdout for `anki-gen`:
-  - word mode: `{ word, lang, files, picks:[{speaker,votes,country,region,favorite,file}], note? }`
+  - word mode: `{ word, lang, files, picks:[{speaker,votes,country,region,favorite,file}], image?, note? }`
   - user mode: `{ user, lang, count, files, items:[{word,file}], note? }`
+  - images-only: `{ word, lang, image }` where `image = {file,source,title,weak,bytes} | {note}`
 
 If `playwright` is missing, run `npm install` once inside `skills/forvo-audio/`.
+(`--images-only` needs neither Playwright nor a browser.)
+
+## Images (`--images` / `--images-only`)
+
+Pulls each word's **top Wikipedia lead image** — key-free **and** browser-free
+(Wikimedia isn't Cloudflare-walled). Discovery uses the REST summary endpoint
+(resolves redirects, e.g. `oso`→`Ursidae`); size is held **under 100KB** by
+requesting smaller widths via the API's `pithumbsize` (no local recompression, so
+no extra deps). Requests are throttled with 429 backoff (Wikimedia rate-limits bursts).
+
+- `--lang` doubles as the Wikipedia subdomain (`es` → `es.wikipedia.org`).
+- `weak: true` flags flags/SVG-renders/diagrams (e.g. country flags) — usable but
+  often poor vocab images; abstract/grammatical words usually have **no** image.
+- Best for concrete nouns, places, and people.
 
 ## How it works (and why it's built this way)
 
@@ -71,4 +90,6 @@ not secret). Empty list = the never-Spain / Colombian-first ranking above.
 The Forvo-specific bits — the `Play(...)` regex (`PLAY_RE_SRC`), the word-page DOM
 extraction (`fetchWordEntries`), the user-page harvest (`fetchUserItems`), and the
 CDN host list (`CDN_HOSTS`) — are the only parts that need recalibration if Forvo's
-markup or hosting changes.
+markup or hosting changes. The image flow is self-contained in `fetchWordImage`
+(+ `wikiSummary` / `wikiThumbAtWidth`); `WIKI_UA`, `IMG_MAX_BYTES`, and `IMG_WIDTHS`
+control the (required) User-Agent and the size cap.

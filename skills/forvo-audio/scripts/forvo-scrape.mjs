@@ -26,10 +26,19 @@
 //   node forvo-scrape.mjs --word hola [--lang es] [--picks 2] [--out ~/Downloads]
 //   node forvo-scrape.mjs --words-file list.txt [--lang es] [--out ~/Downloads]
 //   node forvo-scrape.mjs --user Steve04 [--lang es] [--max-pages N] [--out DIR]
+//   node forvo-scrape.mjs --word hola --images          # audio + a Wikipedia image
+//   node forvo-scrape.mjs --words-file list.txt --images-only   # images, no browser
+//
+// Images (--images / --images-only): pull the top Wikipedia lead image for each
+// word — key-free AND browser-free (Wikimedia isn't Cloudflare-walled). The image
+// is sized under 100KB via the API's width parameter (no local recompression, so
+// no extra deps). Good for concrete nouns/places/people; abstract/grammatical words
+// usually have none. --images-only skips the browser entirely. See fetchWordImage().
 //
 // Output: files land in --out; each unit emits one JSON line on stdout for anki-gen.
-//   word mode: { word, lang, files:[abs], picks:[{speaker,votes,country,region,favorite,file}], note? }
+//   word mode: { word, lang, files:[abs], picks:[{speaker,votes,country,region,favorite,file}], image?, note? }
 //   user mode: { user, lang, count, files:[abs], items:[{word,file}], note? }
+//   images-only: { word, lang, image }   where image = {file,source,title,weak,bytes} | {note}
 
 import { chromium } from 'playwright';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
@@ -52,6 +61,11 @@ const CDN_HOSTS = [
   'https://audio.forvo.com/mp3',
   'https://audio00.forvo.com/mp3',
 ];
+// Wikipedia/Wikimedia image flow (key-free, browser-free). Wikimedia REQUIRES a
+// descriptive User-Agent. Widths step down until the file is under the size cap.
+const WIKI_UA = 'forvo-audio-skill/1.0 (personal Anki study; https://github.com/avidrucker/claude-config)';
+const IMG_MAX_BYTES = 100 * 1024;
+const IMG_WIDTHS = [320, 256, 220, 180, 150, 120];
 
 // ── CLI parsing ───────────────────────────────────────────────────────────────
 function parseArgs(argv) {
@@ -66,6 +80,8 @@ function parseArgs(argv) {
     else if (k === '--picks') a.picks = Math.max(1, parseInt(argv[++i], 10) || 2);
     else if (k === '--max-pages') a.maxPages = parseInt(argv[++i], 10) || undefined;
     else if (k === '--headless') a.headless = true;
+    else if (k === '--images') a.images = true;
+    else if (k === '--images-only') a.imagesOnly = true;
     else if (k === '--help' || k === '-h') a.help = true;
   }
   if (a.out.startsWith('~')) a.out = join(homedir(), a.out.slice(1));
@@ -79,11 +95,13 @@ function usage() {
   node forvo-scrape.mjs --words-file list.txt [--lang es] [--out ~/Downloads]
   node forvo-scrape.mjs --user Steve04 [--lang es] [--max-pages N] [--out DIR]
 
-  --lang        target language section (default: es)
-  --picks       word mode: how many recordings per word (default: 2)
-  --max-pages   user mode: cap pages harvested (default: all)
-  --out         output directory (default: ~/Downloads)
-  --headless    skip the headed window (only safe once clearance is established)
+  --lang         target language section (default: es; also the Wikipedia subdomain)
+  --picks        word mode: how many recordings per word (default: 2)
+  --max-pages    user mode: cap pages harvested (default: all)
+  --out          output directory (default: ~/Downloads)
+  --headless     skip the headed window (only safe once clearance is established)
+  --images       also fetch a top Wikipedia image per word (audio + image)
+  --images-only  fetch only Wikipedia images (no browser, no audio)
 
 Selection rule (word mode): a ranked favorite (favorites.json) wins outright;
 otherwise Spain recordings are dropped, then ranked Colombian-first, then by votes.`);
@@ -124,6 +142,73 @@ async function downloadAudio(b64, dest) {
     } catch (e) { lastErr = e; }
   }
   throw lastErr || new Error('no CDN host returned audio');
+}
+
+// ── Wikipedia image flow (key-free, browser-free) ──────────────────────────────
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Fetch bytes, retrying with backoff on HTTP 429 (Wikimedia rate-limits bursts).
+async function fetchBytes(url) {
+  let delay = 1000;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const r = await fetch(url, { headers: { 'User-Agent': WIKI_UA } });
+    if (r.status === 429 && attempt < 3) { await sleep(delay); delay *= 2; continue; }
+    if (!r.ok) return null;
+    return Buffer.from(await r.arrayBuffer());
+  }
+  return null;
+}
+
+// Top Wikipedia image for a term via the REST summary (resolves redirects).
+// Returns { title, source, weak } or null. `weak` flags flags/svg/diagram images.
+async function wikiSummary(word, lang) {
+  const r = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`,
+    { headers: { 'User-Agent': WIKI_UA } });
+  if (!r.ok) return null;
+  const d = await r.json().catch(() => null);
+  const source = d?.thumbnail?.source;
+  if (!source) return null;
+  const weak = /\.svg\.png$|\/langes-|\.png$/i.test(source);
+  return { title: d.title, source, weak };
+}
+
+// Action-API thumbnail at an exact width (reliable resize, unlike URL-hacking).
+async function wikiThumbAtWidth(lang, title, width) {
+  const u = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&redirects=1` +
+    `&prop=pageimages&piprop=thumbnail&pithumbsize=${width}&titles=${encodeURIComponent(title)}`;
+  const r = await fetch(u, { headers: { 'User-Agent': WIKI_UA } });
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null);
+  const pages = j?.query?.pages || {};
+  return Object.values(pages)[0]?.thumbnail?.source || null;
+}
+
+// Discover → download → guarantee < 100KB. Returns {file,source,title,weak,bytes,note?}
+// or {note} when there's no usable image.
+async function fetchWordImage(word, lang, outDir) {
+  const meta = await wikiSummary(word, lang);
+  if (!meta) return { note: `no Wikipedia image for "${word}"` };
+
+  let buf = await fetchBytes(meta.source);
+  let usedUrl = meta.source;
+  if (!buf || buf.length >= IMG_MAX_BYTES) {
+    for (const w of IMG_WIDTHS) {
+      const src = await wikiThumbAtWidth(lang, meta.title, w);
+      if (!src) continue;
+      const b = await fetchBytes(src);
+      if (!b) continue;
+      buf = b; usedUrl = src;
+      if (b.length < IMG_MAX_BYTES) break;
+    }
+  }
+  if (!buf) return { note: `image download failed for "${word}"` };
+
+  const ext = (usedUrl.match(/\.(jpe?g|png|gif)(?=$|\?)/i)?.[1] || 'jpg').toLowerCase().replace('jpeg', 'jpg');
+  const file = join(outDir, `wiki_${slug(word)}.${ext}`);
+  await writeFile(file, buf);
+  const out = { file, source: meta.source, title: meta.title, weak: meta.weak, bytes: buf.length };
+  if (buf.length >= IMG_MAX_BYTES) out.note = `still ${(buf.length / 1024) | 0}KB (>100KB)`;
+  return out;
 }
 
 // Establish Cloudflare clearance once. After this, in-page fetch() works.
@@ -302,6 +387,18 @@ async function main() {
   }
 
   await mkdir(args.out, { recursive: true });
+
+  // ── Images-only: browser-free, no Forvo at all ──
+  if (args.imagesOnly) {
+    for (const w of words) {
+      const image = await fetchWordImage(w, args.lang, args.out);
+      process.stdout.write(JSON.stringify({ word: w, lang: args.lang, image }) + '\n');
+      await sleep(250); // be gentle on Wikimedia
+    }
+    return;
+  }
+
+  // ── Audio (optionally + images) — needs the browser for Cloudflare clearance ──
   await mkdir(PROFILE_DIR, { recursive: true });
   const favorites = await loadFavorites();
 
@@ -326,6 +423,10 @@ async function main() {
         res = await doWord(page, w, args.lang, args.out, favorites, args.picks);
       } catch (err) {
         res = { word: w, lang: args.lang, files: [], picks: [], note: `error: ${err.message}` };
+      }
+      if (args.images) {
+        res.image = await fetchWordImage(w, args.lang, args.out);
+        await sleep(250); // be gentle on Wikimedia
       }
       process.stdout.write(JSON.stringify(res) + '\n');
     }
