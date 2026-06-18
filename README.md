@@ -10,7 +10,7 @@ computers without disturbing per-machine state.
 
 | Lives in this repo | Lives elsewhere |
 |---|---|
-| `skills/` — 13 personally-authored skills | Work/stack skills → sibling repo `claude-config-work` (Fulcro/Clojure/Datomic) |
+| `skills/` — 14 personally-authored skills | Work/stack skills → sibling repo `claude-config-work` (Fulcro/Clojure/Datomic) |
 | `commands/` — user-scope slash commands | Anthropic-bundled skills (docx, pdf, pptx, etc.) → `~/Documents/anthropic-skills/` |
 | `agents/` — user-scope agents (empty for now) | Matt Pocock's 16 skills (installed separately; see below) |
 | `reference/` — overview docs that explain the skill ecosystem | Anthropic's marketplace plugins (auto-managed by Claude Code) |
@@ -97,7 +97,7 @@ npx skills@latest add mattpocock/skills
 .\install.ps1
 ```
 
-Expected output: per-skill `[link]` lines (13 of them), then a
+Expected output: per-skill `[link]` lines (14 of them), then a
 `[link]` line for the one command, then "Done." A "Next steps"
 block at the bottom reminds you about Pocock's installer if you
 skipped step 2.
@@ -128,7 +128,7 @@ After the install script finishes, confirm the symlinks landed:
 Get-ChildItem ~/.claude/skills -Directory `
   | Where-Object { $_.LinkType -eq 'SymbolicLink' } `
   | Measure-Object | Select-Object -ExpandProperty Count
-# Should print 13 (this repo's skills) — more if the work repo /
+# Should print 14 (this repo's skills) — more if the work repo /
 # anthropic-skills / Pocock are also linked into ~/.claude/skills
 
 Get-Item ~/.claude/commands/font-change.md | Select-Object LinkType,Target
