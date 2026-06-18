@@ -1,5 +1,5 @@
 ---
-name: issue-review
+name: issue-review-skill
 description: >
   Review a GitHub issue for quality and clarity before work begins. Use this skill whenever
   a user asks to review, improve, critique, score, or quality-check a GitHub issue or ticket.
