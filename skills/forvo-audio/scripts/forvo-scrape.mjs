@@ -1,21 +1,38 @@
 #!/usr/bin/env node
-// forvo-scrape.mjs — drive a logged-in Forvo session to download native-speaker
-// pronunciation audio for personal study. Audio half of `anki-gen` (GH #3).
+// forvo-scrape.mjs — download native-speaker pronunciation audio from Forvo for
+// personal study. Audio half of `anki-gen` (GH #3).
 //
-// Auth model: a DEDICATED persistent Playwright profile (NOT your daily Chrome,
-// NOT the Forvo API). No credentials live anywhere — you log in by hand once in
-// the headed window; the session cookie persists in the profile for later runs.
+// HOW IT WORKS (the method that actually survives Forvo's defenses):
+//   1. ALL forvo.com HTML pages are Cloudflare-walled — curl/fetch from outside
+//      gets HTTP 403 "Just a moment". Only a REAL browser passes the challenge.
+//   2. So we launch ONE persistent browser, navigate ONCE to forvo.com to obtain
+//      Cloudflare clearance (the cookie persists in the profile), then read every
+//      other page with an IN-PAGE fetch() — same-origin, so it inherits clearance
+//      and, crucially, does NOT execute the target page's ads/scripts. (Loading
+//      ~hundreds of word pages as real navigations is what exhausted RAM and
+//      froze the machine; in-page fetch avoids that entirely.)
+//   3. Each pronunciation's audio path is base64-encoded inside its play control's
+//      onclick:  Play(id,'<b64 mp3 path>','<b64 ogg>',...,'<word>','<language>').
+//      We decode the 2nd arg to e.g. "9276802/41/9276802_41_540465.mp3".
+//   4. The audio CDN (audioNN.forvo.com) is NOT Cloudflare-walled, so the actual
+//      download is browser-free: plain Node fetch with a UA + Referer.
+//
+// Auth model: a DEDICATED persistent Playwright profile (NOT your daily Chrome).
+// No credentials in the repo. Public audio needs only Cloudflare clearance, which
+// you clear by hand once in the headed window; it persists for later runs. (Log in
+// there too if you want gated features — not required for downloads.)
 //
 // Usage:
-//   node forvo-scrape.mjs --word hola [--lang es] [--out ~/Downloads]
+//   node forvo-scrape.mjs --word hola [--lang es] [--picks 2] [--out ~/Downloads]
 //   node forvo-scrape.mjs --words-file list.txt [--lang es] [--out ~/Downloads]
+//   node forvo-scrape.mjs --user Steve04 [--lang es] [--max-pages N] [--out DIR]
 //
-// Each word emits one JSON line on stdout for anki-gen to consume:
-//   { word, lang, files: [...abs paths], picks: [{speaker, votes, accent, favorite}], note? }
+// Output: files land in --out; each unit emits one JSON line on stdout for anki-gen.
+//   word mode: { word, lang, files:[abs], picks:[{speaker,votes,country,region,favorite,file}], note? }
+//   user mode: { user, lang, count, files:[abs], items:[{word,file}], note? }
 
 import { chromium } from 'playwright';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,42 +43,29 @@ const SKILL_DIR = resolve(HERE, '..');
 // ── Config ──────────────────────────────────────────────────────────────────
 const PROFILE_DIR = join(homedir(), '.config', 'forvo-scraper-profile');
 const FAVORITES_PATH = join(SKILL_DIR, 'favorites.json');
-const LOGIN_TIMEOUT_MS = 5 * 60 * 1000; // headed manual-login window
 const NAV_TIMEOUT_MS = 30 * 1000;
-const AUDIO_TIMEOUT_MS = 15 * 1000;
-
-// ── Selectors / URL shapes (CALIBRATE against live Forvo in build step 7) ─────
-// Forvo markup shifts over time; these are the only Forvo-specific assumptions.
-const SEL = {
-  // A node present only when logged in (e.g. the account/logout menu).
-  loggedIn: '#user-menu, a[href*="logout"]',
-  // Per-language pronunciation list container. `{lang}` is substituted.
-  // Forvo has historically used `#language-container-{lang}`.
-  langContainer: '#language-container-{lang}',
-  // Each pronunciation entry within the container.
-  entry: '.pronunciations li, ul.show-all-pronunciations li',
-  // Within an entry: speaker username, vote count, accent/country, play control.
-  speaker: '.ofLink, .from a, a[href*="/user/"]',
-  votes: '.num_votes, .more .num',
-  accent: '.from, .accent',
-  play: '.play, .pronunciation-play, [onclick*="Play"]',
-};
-const WORD_URL = (word, lang) =>
-  `https://forvo.com/word/${encodeURIComponent(word)}/#${lang}`;
-const LOGIN_URL = 'https://forvo.com/login/';
-// Match the audio response that fires when a play control is clicked.
-const isAudioResponse = (url) =>
-  /\.mp3(\?|$)/i.test(url) || /audio\d*\.forvo\.com/i.test(url);
+const CLEARANCE_TIMEOUT_MS = 5 * 60 * 1000; // headed manual Cloudflare/login window
+// Audio CDN hosts to try, in order. audio12 has served every path we've tested;
+// the others are fallbacks in case Forvo shards a file elsewhere.
+const CDN_HOSTS = [
+  'https://audio12.forvo.com/mp3',
+  'https://audio.forvo.com/mp3',
+  'https://audio00.forvo.com/mp3',
+];
 
 // ── CLI parsing ───────────────────────────────────────────────────────────────
 function parseArgs(argv) {
-  const a = { lang: 'es', out: join(homedir(), 'Downloads') };
+  const a = { lang: 'es', out: join(homedir(), 'Downloads'), picks: 2 };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--word') a.word = argv[++i];
     else if (k === '--words-file') a.wordsFile = argv[++i];
+    else if (k === '--user') a.user = argv[++i];
     else if (k === '--lang') a.lang = argv[++i];
     else if (k === '--out') a.out = argv[++i];
+    else if (k === '--picks') a.picks = Math.max(1, parseInt(argv[++i], 10) || 2);
+    else if (k === '--max-pages') a.maxPages = parseInt(argv[++i], 10) || undefined;
+    else if (k === '--headless') a.headless = true;
     else if (k === '--help' || k === '-h') a.help = true;
   }
   if (a.out.startsWith('~')) a.out = join(homedir(), a.out.slice(1));
@@ -71,103 +75,226 @@ function parseArgs(argv) {
 function usage() {
   console.error(`forvo-scrape — download native-speaker pronunciation audio
 
-  node forvo-scrape.mjs --word hola [--lang es] [--out ~/Downloads]
+  node forvo-scrape.mjs --word hola [--lang es] [--picks 2] [--out ~/Downloads]
   node forvo-scrape.mjs --words-file list.txt [--lang es] [--out ~/Downloads]
+  node forvo-scrape.mjs --user Steve04 [--lang es] [--max-pages N] [--out DIR]
 
-  --lang   target language section (default: es)
-  --out    output directory (default: ~/Downloads)`);
+  --lang        target language section (default: es)
+  --picks       word mode: how many recordings per word (default: 2)
+  --max-pages   user mode: cap pages harvested (default: all)
+  --out         output directory (default: ~/Downloads)
+  --headless    skip the headed window (only safe once clearance is established)
+
+Selection rule (word mode): a ranked favorite (favorites.json) wins outright;
+otherwise Spain recordings are dropped, then ranked Colombian-first, then by votes.`);
 }
 
-const sanitize = (w) =>
-  w.trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '') || 'word';
+// ── Helpers ───────────────────────────────────────────────────────────────────
+// Filename slug: strip accents, lowercase, non-alphanumerics → "_".
+const slug = (w) =>
+  w.normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'word';
 
-async function loadFavorites(lang) {
+async function loadFavorites() {
   try {
     const raw = JSON.parse(await readFile(FAVORITES_PATH, 'utf8'));
-    // favorites.json is language-scoped today; honor it regardless of `lang`.
     return Array.isArray(raw.favorites) ? raw.favorites : [];
   } catch {
     return [];
   }
 }
 
-// ── Per-word scrape ───────────────────────────────────────────────────────────
-async function scrapeWord(page, word, lang, outDir, favorites) {
-  const result = { word, lang, files: [], picks: [] };
-
-  await page.goto(WORD_URL(word, lang), { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-
-  const container = page.locator(SEL.langContainer.replace('{lang}', lang)).first();
-  if ((await container.count()) === 0) {
-    result.note = `no '${lang}' section for "${word}"`;
-    return result;
-  }
-
-  const entries = container.locator(SEL.entry);
-  const n = await entries.count();
-  if (n === 0) {
-    result.note = `no pronunciations in '${lang}' for "${word}"`;
-    return result;
-  }
-
-  // Read metadata for every entry.
-  const meta = [];
-  for (let i = 0; i < n; i++) {
-    const e = entries.nth(i);
-    const speaker = (await e.locator(SEL.speaker).first().textContent().catch(() => null))?.trim() || null;
-    const votesText = (await e.locator(SEL.votes).first().textContent().catch(() => null)) || '';
-    const votes = parseInt(votesText.replace(/[^\d-]/g, ''), 10) || 0;
-    const accent = (await e.locator(SEL.accent).first().textContent().catch(() => null))?.trim() || null;
-    meta.push({ index: i, speaker, votes, accent });
-  }
-
-  // Selection rule: highest-ranked favorite present → 1 file; else top-2 by votes.
-  let chosen;
-  const favRanked = favorites
-    .map((name, rank) => ({ name: name.toLowerCase(), rank }))
-    .map(({ name, rank }) => ({ rank, hit: meta.find((m) => (m.speaker || '').toLowerCase() === name) }))
-    .filter((x) => x.hit)
-    .sort((a, b) => a.rank - b.rank);
-
-  if (favRanked.length > 0) {
-    chosen = [{ ...favRanked[0].hit, favorite: true }];
-  } else {
-    chosen = [...meta]
-      .sort((a, b) => b.votes - a.votes)
-      .slice(0, 2)
-      .map((m) => ({ ...m, favorite: false }));
-  }
-
-  // Download each chosen entry via network-response capture (robust path).
-  for (let pick = 0; pick < chosen.length; pick++) {
-    const m = chosen[pick];
-    const base = sanitize(word);
-    const filename = pick === 0 ? `${base}.mp3` : `${base}-${pick + 1}.mp3`;
-    const dest = join(outDir, filename);
+// Download one recording from the CDN (browser-free). b64 → decoded path → host.
+async function downloadAudio(b64, dest) {
+  const path = Buffer.from(b64, 'base64').toString('utf8');
+  let lastErr;
+  for (const host of CDN_HOSTS) {
+    const url = `${host}/${path}`;
     try {
-      const waitAudio = page.waitForResponse((r) => isAudioResponse(r.url()), { timeout: AUDIO_TIMEOUT_MS });
-      await entries.nth(m.index).locator(SEL.play).first().click();
-      const resp = await waitAudio;
-      await writeFile(dest, await resp.body());
-      result.files.push(dest);
-    } catch (err) {
-      result.note = (result.note ? result.note + '; ' : '') + `audio capture failed for ${m.speaker || 'entry ' + m.index}: ${err.message}`;
-    }
-    result.picks.push({ speaker: m.speaker, votes: m.votes, accent: m.accent, favorite: m.favorite });
+      const r = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://forvo.com/' },
+      });
+      if (!r.ok) { lastErr = new Error(`HTTP ${r.status} from ${host}`); continue; }
+      const buf = Buffer.from(await r.arrayBuffer());
+      // Forvo's "missing audio" placeholder is ~48.9KB; real clips vary. Guard
+      // against truncated/HTML bodies only — the placeholder check is best-effort.
+      if (buf.length < 1500) { lastErr = new Error(`too small (${buf.length}B) from ${host}`); continue; }
+      await writeFile(dest, buf);
+      return { url, bytes: buf.length, path };
+    } catch (e) { lastErr = e; }
   }
+  throw lastErr || new Error('no CDN host returned audio');
+}
 
+// Establish Cloudflare clearance once. After this, in-page fetch() works.
+async function ensureClearance(page) {
+  await page.goto('https://forvo.com/', { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  const challenged = async () =>
+    /just a moment|attention required|cf-/i.test((await page.title()) + ' ' + page.url());
+  if (await challenged()) {
+    console.error('Cloudflare challenge shown — solve it (and log in if you like) in the browser window…');
+    await page.waitForFunction(
+      () => !/just a moment|attention required/i.test(document.title),
+      { timeout: CLEARANCE_TIMEOUT_MS }
+    );
+    console.error('Clearance obtained — session saved for next time.');
+  }
+}
+
+// ── In-page extractors (run in the browser, inherit Cloudflare clearance) ──────
+// Regex pulling {b64,word,lang} from every Play(...) in an HTML string.
+// Shared as a string so it can be injected into page.evaluate.
+const PLAY_RE_SRC = String.raw`Play\(\d+,'([^']*)','[^']*'(?:,[^,]*){4},'([^']*)','([^']*)'`;
+
+// Word page → pronunciation entries with metadata, for the selection rule.
+async function fetchWordEntries(page, word, lang) {
+  return page.evaluate(async ({ word, lang, playReSrc }) => {
+    const url = `https://forvo.com/word/${encodeURIComponent(word)}/`;
+    const res = await fetch(url, { credentials: 'include' });
+    const html = await res.text();
+    if (/just a moment|attention required/i.test(html))
+      return { challenge: true, entries: [] };
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const container = doc.querySelector(`#language-container-${lang}`);
+    if (!container) return { challenge: false, entries: [] };
+
+    const playRe = new RegExp(playReSrc);
+    const regionOf = (el) => {
+      let n = el;
+      while (n && n !== container) {
+        const m = (n.className || '').toString().match(/\b([a-z]{2}_(?:es|latam|other))\b/);
+        if (m) return m[1];
+        n = n.parentElement;
+      }
+      return null;
+    };
+    const entries = [];
+    for (const li of container.querySelectorAll('li')) {
+      const playEl = li.querySelector('[onclick*="Play("]');
+      if (!playEl) continue;
+      const m = (playEl.getAttribute('onclick') || '').match(playRe);
+      if (!m) continue;
+      const speaker = (li.querySelector('a[href*="/user/"]')?.textContent || '').trim() || null;
+      const votesText = li.querySelector('.num_votes, .more .num, .vote-count')?.textContent || '';
+      const votes = parseInt(votesText.replace(/[^\d-]/g, ''), 10) || 0;
+      const cm = li.textContent.replace(/\s+/g, ' ').match(/from ([A-Za-zÁÉÍÓÚÑáéíóúñ .'-]+?)\s*\)/);
+      entries.push({
+        b64: m[1], word: m[2], speaker, votes,
+        country: cm ? cm[1].trim() : null, region: regionOf(li),
+      });
+    }
+    return { challenge: false, entries };
+  }, { word, lang, playReSrc: PLAY_RE_SRC });
+}
+
+// User page → every recording across all pages (deduped). One navigation's worth
+// of clearance covers all pages via in-page fetch.
+async function fetchUserItems(page, user, maxPages) {
+  return page.evaluate(async ({ user, maxPages, playReSrc }) => {
+    const base = `https://forvo.com/user/${encodeURIComponent(user)}/`;
+    const playRe = new RegExp(playReSrc, 'g');
+    const parse = (html) => {
+      const out = []; let m;
+      while ((m = playRe.exec(html)) !== null) out.push({ b64: m[1], word: m[2], lang: m[3] });
+      return out;
+    };
+    const r0 = await fetch(base, { credentials: 'include' });
+    const h0 = await r0.text();
+    if (/just a moment|attention required/i.test(h0)) return { challenge: true, items: [] };
+
+    const doc = new DOMParser().parseFromString(h0, 'text/html');
+    const urls = new Set([base]);
+    for (const a of doc.querySelectorAll('.pagination a')) {
+      const href = a.getAttribute('href');
+      if (href && /\/user\//.test(href)) urls.add(new URL(href, base).toString().split('#')[0]);
+    }
+    let list = [...urls];
+    if (maxPages) list = list.slice(0, maxPages);
+
+    const seen = new Set(); const items = [];
+    const add = (arr) => { for (const it of arr) { const k = it.word + '|' + it.b64; if (!seen.has(k)) { seen.add(k); items.push(it); } } };
+    add(parse(h0));
+    await Promise.allSettled(
+      list.filter((u) => u !== base).map(async (u) => {
+        const r = await fetch(u, { credentials: 'include' });
+        add(parse(await r.text()));
+      })
+    );
+    return { challenge: false, items, pages: list.length };
+  }, { user, maxPages, playReSrc: PLAY_RE_SRC });
+}
+
+// ── Selection (word mode) ──────────────────────────────────────────────────────
+function choosePicks(entries, favorites, picks) {
+  const favLc = favorites.map((f) => f.toLowerCase());
+  for (let r = 0; r < favLc.length; r++) {
+    const hit = entries.find((e) => (e.speaker || '').toLowerCase() === favLc[r]);
+    if (hit) return [{ ...hit, favorite: true }];
+  }
+  const isSpain = (e) => e.country === 'Spain' || e.region === 'es_es';
+  const isColombia = (e) => e.country === 'Colombia';
+  return entries
+    .filter((e) => !isSpain(e))
+    .sort((a, b) => (isColombia(b) - isColombia(a)) || (b.votes - a.votes))
+    .slice(0, picks)
+    .map((e) => ({ ...e, favorite: false }));
+}
+
+// ── Per-unit drivers ───────────────────────────────────────────────────────────
+async function doWord(page, word, lang, outDir, favorites, picks) {
+  const result = { word, lang, files: [], picks: [] };
+  const { challenge, entries } = await fetchWordEntries(page, word, lang);
+  if (challenge) { result.note = 'cloudflare challenge — clearance lost'; return result; }
+  if (entries.length === 0) { result.note = `no '${lang}' pronunciations for "${word}"`; return result; }
+
+  const chosen = choosePicks(entries, favorites, picks);
+  if (chosen.length === 0) { result.note = `only Spain recordings for "${word}" (rejected)`; return result; }
+
+  for (let i = 0; i < chosen.length; i++) {
+    const m = chosen[i];
+    const sp = m.speaker ? '_' + slug(m.speaker) : '';
+    const dest = join(outDir, `forvo_${slug(word)}${sp}.mp3`);
+    try {
+      await downloadAudio(m.b64, dest);
+      result.files.push(dest);
+      result.picks.push({ speaker: m.speaker, votes: m.votes, country: m.country, region: m.region, favorite: m.favorite, file: dest });
+    } catch (e) {
+      result.note = (result.note ? result.note + '; ' : '') + `download failed for ${m.speaker || 'entry'}: ${e.message}`;
+    }
+  }
+  return result;
+}
+
+async function doUser(page, user, lang, outDir, maxPages) {
+  const result = { user, lang, count: 0, files: [], items: [] };
+  const { challenge, items, pages } = await fetchUserItems(page, user, maxPages);
+  if (challenge) { result.note = 'cloudflare challenge — clearance lost'; return result; }
+  const wanted = lang ? items.filter((it) => (it.lang || '').toLowerCase().startsWith(lang === 'es' ? 'spanish' : lang)) : items;
+  result.note = `harvested ${pages} page(s), ${wanted.length} recording(s)`;
+
+  for (const it of wanted) {
+    const dest = join(outDir, `forvo_${slug(it.word)}_${slug(user)}.mp3`);
+    try {
+      await downloadAudio(it.b64, dest);
+      result.files.push(dest);
+      result.items.push({ word: it.word, file: dest });
+    } catch (e) {
+      result.note += `; failed "${it.word}": ${e.message}`;
+    }
+  }
+  result.count = result.items.length;
   return result;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (args.help || (!args.word && !args.wordsFile)) {
+  if (args.help || (!args.word && !args.wordsFile && !args.user)) {
     usage();
     process.exit(args.help ? 0 : 2);
   }
 
-  let words = [];
+  const words = [];
   if (args.word) words.push(args.word);
   if (args.wordsFile) {
     const raw = await readFile(resolve(args.wordsFile), 'utf8');
@@ -176,30 +303,27 @@ async function main() {
 
   await mkdir(args.out, { recursive: true });
   await mkdir(PROFILE_DIR, { recursive: true });
-  const favorites = await loadFavorites(args.lang);
+  const favorites = await loadFavorites();
 
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     channel: 'chrome',
-    headless: false,
-    acceptDownloads: true,
+    headless: !!args.headless,
+    acceptDownloads: false,
   });
   context.setDefaultTimeout(NAV_TIMEOUT_MS);
   const page = context.pages()[0] || (await context.newPage());
 
   try {
-    // Login gate — reuse persisted session, else wait for manual login.
-    await page.goto('https://forvo.com/', { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    if ((await page.locator(SEL.loggedIn).count()) === 0) {
-      console.error('Not logged in. Opening login page — log in by hand in the browser window.');
-      await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-      await page.waitForSelector(SEL.loggedIn, { timeout: LOGIN_TIMEOUT_MS });
-      console.error('Login detected. Continuing — session is saved for next time.');
-    }
+    await ensureClearance(page);
 
+    if (args.user) {
+      const res = await doUser(page, args.user, args.lang, args.out, args.maxPages);
+      process.stdout.write(JSON.stringify(res) + '\n');
+    }
     for (const w of words) {
       let res;
       try {
-        res = await scrapeWord(page, w, args.lang, args.out, favorites);
+        res = await doWord(page, w, args.lang, args.out, favorites, args.picks);
       } catch (err) {
         res = { word: w, lang: args.lang, files: [], picks: [], note: `error: ${err.message}` };
       }
