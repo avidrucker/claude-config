@@ -1,0 +1,40 @@
+# Defensive — these names match what lives in ~/.claude/ as session /
+# cache / per-machine state. If this repo is ever accidentally copied
+# wholesale into ~/.claude/, the .gitignore prevents committing them
+# back here.
+
+# Per-machine settings
+settings.json
+settings.local.json
+policy-limits.json
+mcp-needs-auth-cache.json
+
+# Session / cache state
+cache/
+sessions/
+history.jsonl
+tasks/
+telemetry/
+shell-snapshots/
+paste-cache/
+file-history/
+backups/
+downloads/
+session-env/
+projects/
+
+# Per-skill local config (machine-specific paths/secrets). The committed
+# template is .env.example; the real .env is never committed.
+.env
+!.env.example
+
+# Playwright MCP runtime artifacts (page snapshots, console logs)
+.playwright-mcp/
+
+# Node deps (skills with a package.json re-create these via `npm install`)
+node_modules/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,27 @@
+# gitleaks config for claude-config.
+#
+# Extends gitleaks' default rule set + allowlists the example-domain
+# emails that appear in skill documentation as teaching content.
+#
+# Added 2026-05-24 alongside the equivalent config in fulcro-book +
+# the GitHub-side scanning enablement.
+
+title = "claude-config gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe matches in skill documentation."
+
+regexes = [
+    # RFC 2606 reserved example domain — used in skill teaching
+    # examples (fulcro-spec-tdd, io-layer-testing, guardrails, etc.).
+    # Not real addresses.
+    '''[A-Za-z0-9._%+-]+@example\.com''',
+    '''[A-Za-z0-9._%+-]+@example\.org''',
+    '''[A-Za-z0-9._%+-]+@example\.net''',
+
+    # Standard GitHub SSH clone URL in README's bootstrap recipe.
+    '''git@github\.com:avidrucker/''',
+]

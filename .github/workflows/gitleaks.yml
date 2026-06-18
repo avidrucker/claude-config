@@ -1,0 +1,29 @@
+# gitleaks — secret-scan workflow.
+#
+# Runs on push to main + every PR. Fails the workflow if gitleaks
+# finds any rule match outside the allowlist (see .gitleaks.toml).
+# claude-config is private, but GitHub Actions still runs on private
+# personal-account repos within free-tier minutes.
+
+name: gitleaks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  scan:
+    name: Scan repo for secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

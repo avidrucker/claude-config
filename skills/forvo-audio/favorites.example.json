@@ -1,0 +1,5 @@
+{
+  "language": "es",
+  "favorites": ["user1", "user2", "user3"],
+  "_comment": "Ordered best-first. For a word, the highest-ranked favorite who pronounced it wins (one file). If no favorite is present, the top 2 by upvotes are taken. Usernames are public Forvo handles, not secrets."
+}

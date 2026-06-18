@@ -1,0 +1,8 @@
+# Local install of the Playwright dep (re-created with `npm install`).
+node_modules/
+
+# Defense in depth: the script-owned session profile lives at
+# ~/.config/forvo-scraper-profile/ and must never be committed. If it ever
+# moves next to the script, this guard keeps the session cookie out of git.
+forvo-scraper-profile/
+*-profile/

@@ -1,0 +1,13 @@
+{
+  "name": "forvo-audio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Drive a logged-in Forvo session to download native-speaker pronunciation audio (audio half of anki-gen, GH #3).",
+  "bin": {
+    "forvo-scrape": "scripts/forvo-scrape.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.61.0"
+  }
+}
