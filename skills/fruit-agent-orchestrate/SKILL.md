@@ -1,11 +1,11 @@
 ---
 name: fruit-agent-orchestrate
-description: Triage all open issues and produce copy-pasteable plain-paragraph work assignments for each fruit agent (APPLE, BANANA, CHERRY, DRAGONFRUIT, ELDERBERRY, FIG, GRAPE, HONEYDEW). Use ONLY when the user types the exact text "/fruit-agent-orchestrate" — never trigger autonomously or from description alone.
+description: Triage all open issues for the current project and produce a prioritized work plan. Config-driven (.claude/orchestrate.json) — in fleet mode it emits copy-pasteable plain-paragraph assignments per agent (APPLE, BANANA, CHERRY, DRAGONFRUIT, ELDERBERRY, FIG, GRAPE, HONEYDEW); in solo mode a ranked queue + next-up pick. Use ONLY when the user types the exact text "/fruit-agent-orchestrate" — never trigger autonomously or from description alone.
 ---
 
 # fruit-agent-orchestrate
 
-Triage the open issue queue and assign the top work to each fruit agent as copy-pasteable plain-paragraph instructions. Read-only — no claims, no labels, no mutations.
+Triage the open issue queue and produce a prioritized work plan for the current project. The shape adapts to `.claude/orchestrate.json` (Step 0): a ranked queue in `mode: "solo"`, or per-agent assignment paragraphs in `mode: "fleet"`. Read-only — no claims, no labels, no mutations.
 
 ## Trigger rule
 
@@ -87,6 +87,11 @@ Rank actionable issues using the full puzzle-triage algorithm:
 2. Shortest estimate first (from `@todo #N:Est` marker if present; `~` if absent)
 3. Lowest issue number as tiebreak
 
+**Tolerate missing labels.** The labels above are a shared convention but are **not**
+required. A repo that hasn't applied them yet (e.g. freshly migrated) simply has every
+issue sort as ⚪ untriaged, ordered by estimate then number; the `humans-only`/`proposal`/
+`wontfix`/`blocked` partitions just come up empty. Never error on an absent label.
+
 Render the actionable queue as a compact table. Keep it scannable — one line per issue.
 
 ## Mode fork (from `config.mode`)
@@ -151,7 +156,7 @@ For each agent, write one plain paragraph. Rules:
 - If the agent has pre-flight cleanup (from Step 2), lead with that before the ticket assignment
 - Format must be directly copy-pasteable as a human instruction to that agent
 - **NEVER emit a coordination instruction between agents** (#1438). Assignment paragraphs must not contain the words "coordinate", "land his/her fix first", "if you both end up in", or any phrasing that makes one agent's safety or correctness depend on another agent's actions or timing. If you find yourself about to write such a sentence, the two tickets collide on a file and one of them should have been **held** by the 5a-bis guard, not assigned — go back and hold it.
-- **Do NOT append a per-paragraph "verify the issue is OPEN / run `npm run preflight <N>`" instruction.** The freshness re-check is surfaced **once**, globally, in the `## ⏱ Triaged as of …` banner (see Output shape) — repeating it per agent is boilerplate that bloats each assignment and undercuts its self-contained legibility. (#1159 freshness contract, kept boilerplate-free per the #1200/#1201 assignment-legibility rubric.)
+- **Do NOT append a per-paragraph "verify the issue is OPEN / run the preflight command `<N>`" instruction** (e.g. the resolved `preflightCommand`, or `npm run preflight <N>` on lccjs). The freshness re-check is surfaced **once**, globally, in the `## ⏱ Triaged as of …` banner (see Output shape) — repeating it per agent is boilerplate that bloats each assignment and undercuts its self-contained legibility. (#1159 freshness contract, kept boilerplate-free per the #1200/#1201 assignment-legibility rubric.)
 - **Exception — execution-time referent stamp for dependency-coupled grooming** (#1243): the global OPEN banner above covers the *assigned* ticket's state; it does **not** cover the `#N`s a grooming/PM ticket *references*. So when a PM/grooming/hygiene ticket whose content is another ticket's dependency metadata could not be deferred (Step 2), append exactly **one** targeted line: "Before you edit or close this, re-verify the live state of every `#N` it references (`gh issue view N --json state`) — those deps may be closing in this same wave." This is the *only* sanctioned per-paragraph freshness stamp; it does not violate the no-boilerplate rule because it targets *referents* (uncovered by the banner), not the assigned ticket, and appears only on dependency-coupled grooming assignments — never on ordinary tickets.
 
 Good fit heuristics:
@@ -163,13 +168,21 @@ Good fit heuristics:
 
 ## Output shape
 
-The output **must** open with the freshness banner (the `date` from Step 1), then the rest:
+Two shapes, picked by `config.mode`. Both **must** open with the freshness banner (the `date`
+from Step 1).
+
+**Freshness banner wording** depends on the resolved `claimCommand` (Step 0): if set, name it
+("`<claimCommand>` gates on CLOSED state…"); if unavailable, use the generic line ("verify the
+issue is still OPEN before starting — there is no claim guard in this project").
+
+### Fleet (`mode: "fleet"`)
 
 ```
 ## ⏱ Triaged as of <ISO triage timestamp> — re-validate before claiming
-This snapshot decays as agents close tickets. `npm run claim` gates on CLOSED state (it refuses a
-closed issue), but that guard skips when `gh` is offline — so verify OPEN if in doubt. Re-run this
-skill each round (or after several closes); do not reuse this list across a long multi-hour session.
+This snapshot decays as agents close tickets. <claimCommand, if set,> gates on CLOSED state (it
+refuses a closed issue), but that guard skips when the host CLI is offline — so verify OPEN if in
+doubt. Re-run this skill each round (or after several closes); do not reuse this list across a long
+multi-hour session.
 
 ## ⚠ Pre-flight cleanup
 [stale markers and worktrees, attributed to owning agent]
@@ -203,6 +216,34 @@ FIG: [plain paragraph]
 GRAPE: [plain paragraph]
 
 HONEYDEW: [plain paragraph]
+```
+
+### Solo (`mode: "solo"`)
+
+No roster, no per-agent paragraphs, no collision-held section. Just the ranked queue and the
+single next thing to do.
+
+```
+## ⏱ Triaged as of <ISO triage timestamp> — re-validate before starting
+Verify the issue is still OPEN before starting. <If claimCommand set, name it; else: this project
+has no claim guard.> Re-run this skill after closing a few issues rather than reusing a stale list.
+(puzzle-status enrichment unavailable for this project)   ← include only when it did not resolve
+
+## ⚠ Pre-flight cleanup
+[stale markers only, if the status enrichment resolved; else omit]
+
+## 🎯 Actionable — Yegor priority order
+[compact ranked table: #N · severity · est · title]
+
+## ▶ Next up
+#N — <title>. <one sentence: why this is the top pick now.>
+[optionally list the next 2–3 after it]
+
+## 🧑 Requires human routing
+[humans-only / decision / human-decision-required — omit if empty]
+
+## ⛔ Blocked  /  💤 Icebox
+[brief lists — omit if empty]
 ```
 
 ---
