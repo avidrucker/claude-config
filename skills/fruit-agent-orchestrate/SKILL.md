@@ -89,20 +89,35 @@ Rank actionable issues using the full puzzle-triage algorithm:
 
 Render the actionable queue as a compact table. Keep it scannable — one line per issue.
 
-## Step 4 — agent roster (dynamic in-flight detection)
+## Mode fork (from `config.mode`)
 
-Derive who is busy from the `git worktree list` output (Step 1): each non-main entry's branch is `<fruit>/issue-N-…` — the component before `/issue-` is a **busy agent**, in-flight on issue `N`. Mark those fruits busy and the rest available:
+- **`mode: "solo"`** → **skip Step 4 and Steps 5/5a/5a-bis entirely.** There are no parallel
+  agents, so there is no roster, no area bin-packing, and no same-file collision risk. Emit the
+  **solo output** (ranked queue + "Next up" pick) — see Output shape › Solo. Step 2's
+  stale-marker scan and Step 3 ranking still apply; Step 2's worktree/sequencing/grooming
+  sub-points are fleet concerns and are skipped.
+- **`mode: "fleet"`** → run Steps 4–5 as written below.
+
+## Step 4 — agent roster (fleet only; dynamic in-flight detection)
+
+The roster is **`config.roster`** (default the 8 fruits APPLE … HONEYDEW). Derive who is busy
+from the `git worktree list` output (Step 1): parse each non-main entry's branch with
+**`config.worktreeBranchPattern`** (default `^(?<agent>[a-z]+)/issue-(?<issue>\d+)`) — the
+`agent` capture is a **busy agent**, in-flight on the `issue` capture. Mark those busy and the
+rest available:
 
 | Agent | State |
 |-------|-------|
-| each standard fruit (APPLE … HONEYDEW) + any other active fruit | **available**, OR **busy — in-flight on #N** (derived from `git worktree list`) |
+| each roster member + any other active agent | **available**, OR **busy — in-flight on #N** (derived from `git worktree list` via `worktreeBranchPattern`) |
 
 - Do **not** assign new work to a busy agent this cycle.
 - **Surface, don't hide:** list each busy agent in the broadcast as `🔵 <FRUIT> — in-flight on #N, skip this cycle`, so the human can see *why* an agent was skipped and override if needed.
 
 > #630 ruling: Q1 = parse `git worktree list` inline (the data is already in Step 1; no extra tool call); Q2 = surface, don't silently skip. The cleaner long-term home is the `puzzle:status --json` redesign (#1046), which reports `CLAIMED`/`IN-PROGRESS` directly. **Cross-clone caveat:** `git worktree list` only sees *this* checkout's worktrees — an agent working in a different clone won't appear here; the `claim` guard (#1010) is the backstop for that residual case. Origin repro: #1335.
 
-## Step 5 — produce assignments
+## Step 5 — produce assignments (fleet only)
+
+> Skipped entirely in `mode: "solo"` (see Mode fork). Solo emits a ranked queue instead.
 
 ### 5a — group issues by area
 
@@ -200,6 +215,8 @@ Implemented in **Step 4** above: branch names from `git worktree list` are parse
 
 Future: after collecting data, prompt the user to paste the most recent output message from each active agent. Use that to detect: which tickets are already claimed, what decisions are pending (blocking the agent from closing), and whether an agent has cleanup debt. For now, rely on the user to volunteer this context in their message before or alongside `/fruit-agent-orchestrate`.
 
-## STUB — dynamic agent registration
+## ~~STUB~~ RESOLVED — dynamic agent registration
 
-Future: detect or register agents beyond the fixed seven (APPLE, BANANA, CHERRY, DRAGONFRUIT, ELDERBERRY, FIG, GRAPE). Possible sources: worktree branch names, a `.claude/agents.json` roster file, or `npm run claim --list`. For now, the roster is hard-coded to the seven standard fruit names.
+The roster is now **`config.roster`** in `.claude/orchestrate.json` (default the 8 standard
+fruits). To run with a different or larger set, edit that key — no skill change. Busy agents
+are still derived live from worktree branches via `config.worktreeBranchPattern`.
