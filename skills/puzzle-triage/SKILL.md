@@ -72,11 +72,14 @@ grep -v '^#' stats/ice-scores.csv   # or read stats/ice-scores.md for the render
 npm run puzzles >/dev/null 2>&1 && grep -oP '#\d+:\S+' puzzles.xml   # or:
 grep -rEn '@(todo|inprogress) #[0-9]+:[0-9]+m' src demos plusdemos 2>/dev/null
 
-# 3. (Optional, if the project has the reconciler) drop work another agent owns,
-#    AND derived cluster soft-locks (a clustermate is mid-flight):
-npm run puzzle:status -- --json 2>/dev/null   # skip CLAIMED / IN-PROGRESS; LOCKED → 🔒 section
-#   rows[].status ∈ AVAILABLE | CLAIMED | IN-PROGRESS | LOCKED | BLOCKED | STALE
+# 3. (Optional) drop work another agent owns. Resolve the status reconciler from
+#    .claude/orchestrate.json `enrichment.statusCommand` (the same one
+#    fruit-agent-orchestrate uses); skip this step if unset.
+"$STATUS_CMD" --json 2>/dev/null    # e.g. `pmtools status` (generic) or `npm run puzzle:status` (lccjs)
+#   pmtools status → markers[].status ∈ IDLE | CLAIMED | STALE  (CLAIMED lifts out claimed work)
+#   lccjs puzzle:status additionally → IN-PROGRESS | LOCKED (cluster soft-lock) | BLOCKED — richer overlay
 #   a LOCKED row carries detail "cluster `<name>` — clustermate #M in progress"
+#   Unset / absent → skip enrichment: no 🔵 in-flight, no 🔒 section. Degrade gracefully.
 ```
 
 Estimates live on the `@todo #N:Est/ROLE` *marker*, not on the issue. Join by
@@ -164,7 +167,9 @@ row — run `npm run ice:score`; 3 have no `severity:*` label — so the rank st
   `proposal`, `wontfix`. lccjs is the reference project — copy its label set if a
   project lacks one.
 - Optional: a pdd setup (`@todo #N:Est/ROLE` markers) for estimates, and a
-  `puzzle:status` reconciler to exclude claimed work. The skill degrades
+  status reconciler to exclude claimed work — resolved from
+  `.claude/orchestrate.json` `enrichment.statusCommand` (`pmtools status`
+  generically; `npm run puzzle:status` on lccjs). The skill degrades
   gracefully without them (estimates show `~`, no in-flight / 🔒 section).
 - Optional: a derived-cluster manifest (`docs/puzzle-clusters.csv`) that
   `puzzle:status` reads to emit `LOCKED` rows. Absent → no 🔒 section, nothing else
