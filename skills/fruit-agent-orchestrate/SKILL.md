@@ -11,28 +11,56 @@ Triage the open issue queue and assign the top work to each fruit agent as copy-
 
 **Only run when the user types `/fruit-agent-orchestrate` verbatim.** Never self-trigger.
 
+## Step 0 — load project config
+
+This skill bakes in **zero** project-specific assumptions. Read `.claude/orchestrate.json`
+at the repo root and apply it. Full schema: `references/orchestrate-config.md`. If the file
+(or any key) is missing, fall back to defaults; if the whole file is absent, note
+`(no orchestrate config — generic defaults)` in the output.
+
+Defaults: `mode: "solo"`, the 8-fruit roster, `issueLimit: 50`, `host: "github"`, all
+`enrichment`/`advisory` commands `null`.
+
+Resolve three things from config before collecting data:
+- **Provider adapter** from `host`: `github` → the `gh` CLI; `gitlab` → the `glab` CLI.
+  GitLab is not yet implemented — if `host: "gitlab"`, emit `gitlab adapter not yet implemented`
+  and stop.
+- **Mode** from `mode`: `"solo"` (single ranked queue) vs `"fleet"` (parallel per-agent
+  assignments + collision guards). Most of Steps 4–5 are gated on this.
+- **Enrichment commands** (`status`, `claim`, `preflight`) — resolved **per command**:
+  1. explicit `enrichment.<x>Command` if non-null → use verbatim;
+  2. else if `pmtools.home` non-null → derive `<home>/<port>/<tool>` (port defaults to
+     `languages[0]`'s port);
+  3. else → unavailable: skip that step and note it.
+
 ## Step 1 — collect data
 
-Run all four commands **in a single parallel tool-use call** (no ordering dependency between them). Read all outputs before proceeding to Step 2.
+Always run these in a single parallel tool-use call (no ordering dependency). Use the
+**provider adapter** (Step 0) and `issueLimit` (default 50) — never hardcode `gh`/100.
+Read all outputs before Step 2.
 
 ```bash
-gh issue list --state open --limit 100 \
+# provider "list open issues" — GitHub form shown; glab form differs (see adapter)
+gh issue list --state open --limit <issueLimit> \
   --json number,title,labels,createdAt \
   -q '.[] | "#\(.number)\t\([.labels[].name]|join(","))\t\(.title)"'
-
-npm run puzzle:status
 
 git worktree list
 
 date '+%Y-%m-%dT%H:%M:%S%z'   # triage timestamp — stamp it on the output (freshness contract)
 ```
 
+Then, **only if the `status` enrichment command resolved** (Step 0), run it for the
+stale-marker/claim signal — e.g. `npm run puzzle:status` (lccjs) or `<pmtools>/<port>/status`.
+If it did not resolve, skip it and note `(puzzle-status enrichment unavailable for this project)`
+in the pre-flight section. Likewise `preflightCommand` is used only where resolvable.
+
 **Freshness contract.** This skill takes a snapshot of *open* issue state at triage time and freezes it into prose that is consumed asynchronously — often one agent at a time, over a long session — while those same agents are rapidly closing tickets. So the snapshot decays: a later assignment can name a `#N` that closed hours earlier. To bound that staleness, capture the `date` above and stamp it on the output (see Output shape), and treat the output as **single-round / short-lived** — re-run the skill each round (or after several closes) rather than reusing one assignment list across a multi-hour session. (#1159)
 
 ## Step 2 — pre-flight cleanup
 
 Before ranking, scan for and surface:
-- **Stale markers**: `puzzle:status` rows flagged `[STALE]` — issue is CLOSED but marker still exists. Note the file + line.
+- **Stale markers** *(only when the `status` enrichment resolved — Step 0)*: `puzzle:status` rows flagged `[STALE]` — issue is CLOSED but marker still exists. Note the file + line. If the enrichment is unavailable, skip this bullet and rely on the noted `(puzzle-status enrichment unavailable)` line.
 - **Stale worktrees**: `git worktree list` entries whose branch issue number resolves to a CLOSED issue (`gh issue view N --json state -q .state`). Note the path and branch.
 - **Sequencing constraints**: tickets whose body carries a `Sequenced after: #N` line must not be assigned ahead of their dependency (#824). Cheap pre-filter: only inspect bodies of tickets carrying the `sequenced` label; without the label, checking every body is too expensive at 50+ issues. For each constrained ticket, resolve #N's state and decide:
   - **#N CLOSED** → constraint satisfied; ticket is freely assignable.
