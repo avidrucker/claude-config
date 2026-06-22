@@ -7,8 +7,6 @@ description: Triage all open issues for the current project and produce a priori
 
 Triage the open issue queue and produce a prioritized work plan for the current project. The shape adapts to `.claude/orchestrate.json` (Step 0): a ranked queue in `mode: "solo"`, or per-agent assignment paragraphs in `mode: "fleet"`. Read-only — no claims, no labels, no mutations.
 
-> **Related lineage (intentionally separate):** a parallel "Hermes Agent" build of this skill lives in `hermes-config` (github.com/avidrucker/hermes-config) and generalizes via **environment variables** (`ORCH_PUZZLE_STATUS_CMD`, `ORCH_CLAIM_CMD`, `ORCH_AGENTS`) rather than this `.claude/orchestrate.json` file. The two are maintained separately for different runtimes; this is not drift. Don't sync one over the other.
-
 ## Trigger rule
 
 **Only run when the user types `/fruit-agent-orchestrate` verbatim.** Never self-trigger.
