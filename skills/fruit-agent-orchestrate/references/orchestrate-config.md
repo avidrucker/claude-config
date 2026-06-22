@@ -92,6 +92,13 @@ Applied **per command** (`status`, `claim`, `preflight`):
 3. Else → the command is **unavailable**: skip that step and note it in the output
    (e.g. `(puzzle-status enrichment unavailable for this project)`).
 
+**Preferred (zero hardcoded paths):** install the pmtools self-locating dispatcher on
+`PATH` (`pmtools/install.sh`) and set the enrichment commands to `pmtools status` /
+`pmtools claim` / `pmtools preflight`. The dispatcher resolves its own clone root
+(`$PMTOOLS_HOME` or self-resolved), so the clone can move/relocate without editing any
+config — and `pmtools.home` can be `null`. (Deriving from an absolute `pmtools.home`, or
+lccjs's `npm run` shims, remain supported fallbacks when the dispatcher isn't on PATH.)
+
 ## Examples
 
 **lccjs** (Node, parallel agents) — re-enables its npm tooling and fleet mode:
