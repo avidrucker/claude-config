@@ -10,6 +10,12 @@ Labels are deliberately **not** here — `severity:high|medium|low`, `blocked`,
 identical across all projects; the skill references them directly and tolerates their
 absence.
 
+**Severity semantics (shared rule):** `severity:*` is for **defects (bugs) only** — it
+describes the impact of a defect, and is the primary ranking key. **Features/enhancements
+get `enhancement` and NO severity** (they rank below triaged bugs by design; pull a feature
+forward by assigning it directly, not by faking severity). Use `blocked` for real
+dependencies. This keeps the ranking honest and the taxonomy identical across repos.
+
 ## Full schema
 
 ```jsonc
