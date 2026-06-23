@@ -59,9 +59,34 @@ dependencies. This keeps the ranking honest and the taxonomy identical across re
   "advisory": {
     "clusterFile": null,             // e.g. "puzzle-clusters.csv"; null => skip overlap hints
     "sequencingDocRef": null
+  },
+
+  // --- storage (velocity + errors; SQLite source of truth, CSV is a derived mirror) ---
+  "storage": {
+    "dbPath": null,                  // null => ~/.pmtools/<repo>/pmtools.db
+    "velocity": { "enabled": false, "csvMirror": null, "logCommand": null },
+    "errors":   { "enabled": false, "csvMirror": null, "logCommand": null }
   }
 }
 ```
+
+## Storage block
+
+`pmtools error`/`velocity` and the PM skills (`log-error`, `puzzle-velocity`,
+`next-best-action`, `write-til-doc`) read `storage`. **SQLite is the source of
+truth; a CSV mirror is only a derived shallow export of one table** (for
+pandas/Jupyter) — never written to directly.
+
+| Key | Meaning |
+|---|---|
+| `storage.dbPath` | SQLite path; `null` → `~/.pmtools/<repo>/pmtools.db`. (lccjs: `~/.lccjs/lccjs.db`.) |
+| `storage.<store>.enabled` | `false` → the store is off; skills skip it and the CLI refuses with "disabled for this project". Each of `velocity`/`errors` is independent. |
+| `storage.<store>.csvMirror` | path → also export that table to a CSV mirror after writes; `null` → DB only. |
+| `storage.<store>.logCommand` | `null` → derive `pmtools <store> log`; explicit string overrides (lccjs → `"npm run velocity:log"` / `"npm run error:log"`, keeping its own `better-sqlite3` impl). |
+
+Per-project: **pycats** = errors DB-only (`velocity.enabled:false`); **lccjs** =
+both DB+CSV via its npm shims. Python storage uses stdlib `sqlite3`; the JS port
+shells to the `sqlite3` CLI.
 
 ## Key reference
 
