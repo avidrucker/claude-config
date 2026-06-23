@@ -1,9 +1,19 @@
 ---
 name: write-til-doc
-description: Guide an agent through writing, filing, and closing a TIL (Today I Learned) entry in docs/learnings/ for the lccjs project. Use when the user says "write a TIL", "write up what you learned", "add to learnings", or requests a session retrospective.
+description: Guide an agent through writing, filing, and closing a TIL (Today I Learned) entry in docs/learnings/. Use when the user says "write a TIL", "write up what you learned", "add to learnings", or requests a session retrospective.
 ---
 
 # Write TIL Doc
+
+The TIL doc layout (`docs/learnings/today-i-learned-*` + a README index row) is an **lccjs project convention**, not config-driven; keep it as written. Only the tool commands (claim / close / velocity-log) resolve from `.claude/orchestrate.json` — see **Project config**.
+
+## Project config
+
+Resolve these from `.claude/orchestrate.json` (schema: `fruit-agent-orchestrate/references/orchestrate-config.md`):
+
+- **claim command** — resolved `enrichment.claimCommand` (pmtools: `pmtools claim <N> --as <fruit>`; lccjs: `npm run claim -- <N> --as <fruit>`).
+- **close command** — the resolved close command from the `enrichment` block (pmtools: `pmtools close <N>`; lccjs: `npm run close <N>`).
+- **velocity-log command** — resolved `storage.velocity.logCommand`, **gated on `storage.velocity.enabled`**. If disabled (e.g. pycats), **skip the velocity step entirely** (Step 5's logging) — there is nothing to log. When enabled: `null` ⇒ `pmtools velocity log '<json>'`; lccjs `npm run velocity:log -- '<json>'`.
 
 ## Triggers
 - "write a TIL", "write up what you learned today", "add to learnings"
@@ -45,7 +55,8 @@ Session retrospective for YYYY-MM-DD (AGENT). Topics: <comma-separated themes>."
 
 ```bash
 git status                        # verify main is clean first
-npm run claim -- <N> --as <fruit>
+<claim-cmd> <N> --as <fruit>      # resolved enrichment.claimCommand
+                                  #   (pmtools `pmtools claim`; lccjs `npm run claim --`)
 cd <worktree-path>
 ```
 
@@ -66,9 +77,13 @@ README row format (see REFERENCE.md for the full table header):
 
 ## Step 5 — Log velocity + commit
 
+**If `storage.velocity.enabled` is `false` (e.g. pycats): skip the velocity-log call entirely** — there is nothing to log and no CSV mirror to stage. Commit just the TIL doc + README index row with `Closes #N`.
+
+When velocity is enabled, capture the finish time and log the row with the resolved `<velocity-log-cmd>` (pmtools `pmtools velocity log`; lccjs `npm run velocity:log --`):
+
 ```bash
 date '+%Y-%m-%dT%H:%M:%S%z'   # capture finish time
-npm run velocity:log -- '{
+<velocity-log-cmd> '{
   "ticket": N, "title": "TIL YYYY-MM-DD AGENT — theme",
   "role": "WRITER", "agent": "FIG", "h_min": 15, "c_min": 10,
   "actual_min": X, "delta_h_min": Y, "delta_c_min": Z,
@@ -76,12 +91,12 @@ npm run velocity:log -- '{
 }'
 ```
 
-Stage and commit everything in **one commit** — velocity CSV must share the `Closes #N` commit (RULES.md rule 15):
+Stage and commit everything in **one commit** — when velocity is enabled, the CSV mirror (`storage.velocity.csvMirror`) must share the `Closes #N` commit (RULES.md rule 15). Drop the CSV line if velocity is disabled:
 
 ```bash
 git add docs/learnings/today-i-learned-*.md \
         docs/learnings/README.md \
-        docs/puzzle-velocity.csv
+        <csv-mirror>                      # only if storage.velocity.enabled
 git commit -m "docs(learnings): TIL YYYY-MM-DD AGENT — theme (#N)
 
 data(velocity): log #N (AGENT, WRITER, Xm)
@@ -92,7 +107,7 @@ Closes #N"
 ## Step 6 — Close
 
 ```bash
-npm run close <N>
+<close-cmd> <N>                   # resolved close command (pmtools `pmtools close`; lccjs `npm run close`)
 ```
 
 ## Close checklist
@@ -103,6 +118,6 @@ npm run close <N>
 - [ ] Worktree claimed for the TIL issue number
 - [ ] `today-i-learned-YYYY-MM-DD-<agent>[...].md` written to `docs/learnings/`
 - [ ] README index row added (mandatory)
-- [ ] Velocity logged (`WRITER` role)
-- [ ] CSV + `Closes #N` in **one** commit (rule 15)
-- [ ] `npm run close <N>` completed
+- [ ] Velocity logged (`WRITER` role) — *only if `storage.velocity.enabled`; skip otherwise*
+- [ ] CSV mirror (if velocity enabled) + `Closes #N` in **one** commit (rule 15)
+- [ ] resolved close command (`<close-cmd> <N>`) completed

@@ -1,22 +1,33 @@
 ---
 name: log-error
-description: Protocol for recording agent errors into the lccjs errors table — when to log, what fields to populate, the exact command, and when to skip. Use whenever a tool call fails, a hook blocks, a claim fails, or any non-trivial error occurs during puzzle work.
-version: 1.1.1
-last_reviewed: 2026-06-15
+description: Protocol for recording agent errors into the project's errors store — when to log, what fields to populate, the resolved command, and when to skip. Use whenever a tool call fails, a hook blocks, a claim fails, or any non-trivial error occurs during puzzle work.
+version: 1.2.0
+last_reviewed: 2026-06-23
 ---
 
-# Error Logging Protocol (lccjs)
+# Error Logging Protocol
 
-When a non-trivial error occurs during puzzle work, log it to `~/.lccjs/lccjs.db` using `npm run error:log`.
+When a non-trivial error occurs during puzzle work, log it to the project's errors store using the command resolved from `.claude/orchestrate.json` (see **Project config** below).
+
+## Project config
+
+This skill resolves its mechanics from `.claude/orchestrate.json` (full schema:
+`fruit-agent-orchestrate/references/orchestrate-config.md` → "Storage block"). Read these keys:
+
+- **`storage.errors.enabled`** — if `false`, error logging is **disabled for this project**: the skill no-ops. Note it (e.g. "error logging disabled for this project") and skip every step below.
+- **`storage.errors.logCommand`** — the log command. `null` ⇒ derive `pmtools error log '<json>'`; an explicit string overrides (lccjs: `npm run error:log -- '<json>'`). Below, **`<error-log-cmd>`** means this resolved command; the JSON row schema is identical regardless of which command runs.
+- **`storage.dbPath`** — the SQLite store for self-audit `SELECT`s. `null` ⇒ `~/.pmtools/<repo>/pmtools.db` (lccjs: `~/.lccjs/lccjs.db`). Below, **`<db>`** means this resolved path.
+
+Everything else here — the trigger list, `error_type` taxonomy, when-to-log/skip rules, and the pre-close self-audit protocol — is project-agnostic and applies as written.
 
 ## Triggers — log when any of these occur
 
 - A Bash command exits non-zero and the failure affects the work (not just a harmless grep miss)
 - A tool call (`Edit`, `Write`, `Read`, `Bash`) returns an error result
-- A `npm run claim` fails (closed issue, already claimed, wrong syntax)
+- A claim command fails (closed issue, already claimed, wrong syntax)
 - A git operation fails (`push`, `rebase`, `commit`)
 - A `gh` CLI call returns an error (rate limit, not found, auth)
-- A SQLite / `velocity:log` / `error:log` call fails
+- A SQLite / velocity-log / error-log call fails
 - A skill invocation errors or returns unexpected output
 - A pre-commit / commit-msg / pre-push hook exits non-zero and blocks the commit
 
@@ -31,8 +42,10 @@ Log every error, misfire, glitch, and mistake — including those immediately re
 
 ## The command
 
+Use the resolved `<error-log-cmd>` (pmtools: `pmtools error log '<json>'`; lccjs: `npm run error:log -- '<json>'`). The JSON row schema below is the same either way:
+
 ```bash
-npm run error:log -- '{"occurred_iso":"<ISO8601>","agent":"<NAME>","model":"<model>","ticket":<N>,"error_type":"<TYPE>","message":"<raw message>","context":"<JSON>","notes":"<annotation>"}'
+<error-log-cmd> '{"occurred_iso":"<ISO8601>","agent":"<NAME>","model":"<model>","ticket":<N>,"error_type":"<TYPE>","message":"<raw message>","context":"<JSON>","notes":"<annotation>"}'
 ```
 
 Capture `occurred_iso` with `date '+%Y-%m-%dT%H:%M:%S%z'` at the moment of failure.
@@ -56,13 +69,13 @@ Capture `occurred_iso` with `date '+%Y-%m-%dT%H:%M:%S%z'` at the moment of failu
 |---|---|
 | `TOOL_DENIED` | User rejected a tool permission prompt (Bash, Edit, Write, etc.) |
 | `HOOK_BLOCK` | pre-commit / commit-msg / pre-push hook exited non-zero |
-| `CLAIM_FAIL` | `npm run claim` failed (closed issue, already claimed, missing `--as`) |
+| `CLAIM_FAIL` | the resolved claim command failed (closed issue, already claimed, missing `--as`) |
 | `BASH_FAIL` | Any Bash command exited non-zero with work impact |
 | `GIT_FAIL` | `git push`, `git rebase`, `git commit` failed |
 | `GIT_STATE` | Git/shell state mismatch: getcwd errors (cwd deleted), "not a working tree", detached HEAD, etc. |
 | `GH_FAIL` | `gh` CLI / GitHub API error (rate limit, network, not found) |
 | `GH_INFO` | `gh` returned a non-error warning that revealed a wrong workflow assumption ("already closed", "already merged") |
-| `DB_FAIL` | `velocity:log`, `error:log`, or any SQLite operation failed |
+| `DB_FAIL` | a velocity-log, error-log, or any SQLite operation failed |
 | `FILE_FAIL` | Read / Write / Edit tool failure (path not found, permission denied) |
 | `EDIT_PRECOND` | Edit/Write precondition not met: `old_string` not found, file not read before edit, "no changes to make" |
 | `SKILL_FAIL` | Skill invocation errored or produced unexpected output |
@@ -104,7 +117,7 @@ Capture `occurred_iso` with `date '+%Y-%m-%dT%H:%M:%S%z'` at the moment of failu
 ## Example row
 
 ```bash
-npm run error:log -- '{
+<error-log-cmd> '{
   "occurred_iso": "2026-06-05T16:30:00-1000",
   "agent": "CHERRY",
   "model": "sonnet-4.6",
@@ -127,7 +140,7 @@ Log the row at the moment the error occurs, even if you expect to resolve it imm
 
 ## Pre-close self-audit (required — RULES.md 16 / R021)
 
-Logging "at the moment of failure" is the ideal, but it is easy to forget: you self-correct a misfire, move on, and the row never gets written — so the table under-reports (the #1108 repro: 3 errors went unlogged until a human asked, then backfilled as rows 49–51). The backstop, mandated as a close step, is a **transcript self-audit** — chosen as Option D in #1117 precisely because `npm run close` cannot see the conversation but **you can**:
+Logging "at the moment of failure" is the ideal, but it is easy to forget: you self-correct a misfire, move on, and the row never gets written — so the table under-reports (the #1108 repro: 3 errors went unlogged until a human asked, then backfilled as rows 49–51). The backstop, mandated as a close step, is a **transcript self-audit** — chosen as Option D in #1117 precisely because the close command cannot see the conversation but **you can**:
 
 **Before the velocity log at every close:**
 
@@ -135,7 +148,7 @@ Logging "at the moment of failure" is the ideal, but it is easy to forget: you s
 2. Enumerate every event matching the triggers above — *including resolved ones*.
 3. For each, confirm a row exists or log it now:
    ```bash
-   sqlite3 ~/.lccjs/lccjs.db "SELECT id,error_type,message FROM errors WHERE ticket=N"
+   sqlite3 <db> "SELECT id,error_type,message FROM errors WHERE ticket=N"
    ```
 4. State the outcome explicitly in the closing comment — one of:
    - `error self-audit: N row(s) logged (#ids …)`
@@ -145,21 +158,23 @@ The explicit statement is the point: it turns silence into a checkable acknowled
 
 ## Querying logged errors
 
+`<db>` is the resolved `storage.dbPath` (default `~/.pmtools/<repo>/pmtools.db`; lccjs `~/.lccjs/lccjs.db`).
+
 ```bash
 # Recent errors
-sqlite3 ~/.lccjs/lccjs.db \
+sqlite3 <db> \
   "SELECT id, occurred_iso, agent, error_type, message FROM errors ORDER BY id DESC LIMIT 10"
 
 # Errors by type
-sqlite3 ~/.lccjs/lccjs.db \
+sqlite3 <db> \
   "SELECT error_type, COUNT(*) as n FROM errors GROUP BY error_type ORDER BY n DESC"
 
 # Errors for a specific ticket
-sqlite3 ~/.lccjs/lccjs.db \
+sqlite3 <db> \
   "SELECT id, error_type, message FROM errors WHERE ticket = 880"
 
 # All errors from a specific agent
-sqlite3 ~/.lccjs/lccjs.db \
+sqlite3 <db> \
   "SELECT id, occurred_iso, error_type, message FROM errors WHERE agent = 'CHERRY' ORDER BY occurred_iso"
 ```
 

@@ -42,7 +42,8 @@ dependencies. This keeps the ranking honest and the taxonomy identical across re
   "enrichment": {
     "statusCommand": null,           // e.g. "npm run puzzle:status"; null => skip + note
     "claimCommand": null,
-    "preflightCommand": null
+    "preflightCommand": null,
+    "closeCommand": null             // e.g. "pmtools close" / "npm run close"; used by next-best-action / write-til-doc
   },
 
   // --- tooling paths (defaults shown; override only if nonstandard) ---

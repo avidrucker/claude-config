@@ -1,13 +1,24 @@
 ---
 name: next-best-action
-description: Pre-close checklist that catches findings that should be filed as tickets before the close commit. Surface it at every `npm run close N` on a substantive puzzle, but run it only with explicit user go-ahead — it is a token-heavy pass, not an auto-run step.
+description: Pre-close checklist that catches findings that should be filed as tickets before the close commit. Surface it at every close on a substantive puzzle, but run it only with explicit user go-ahead — it is a token-heavy pass, not an auto-run step.
 ---
 
 # /next-best-action — pre-close finding checklist
 
-Invoke this skill **before** writing the close commit and before running `npm run close N`. It takes 2–3 minutes and catches the most common oversight: findings that should become tickets, but won't if you close now.
+Invoke this skill **before** writing the close commit and before running the resolved close command (see **Project config**). It takes 2–3 minutes and catches the most common oversight: findings that should become tickets, but won't if you close now.
 
 **Run only with explicit user go-ahead.** This is a token-heavy pass, so don't auto-run it on every close and don't auto-skip it by how long the turn took. At close, *surface* that it applies ("next-best-action would apply here — run it?") and run it only once the user approves. The cost control is the approval gate, not a duration heuristic (#1279).
+
+## Project config
+
+This skill resolves its mechanics from `.claude/orchestrate.json` (full schema:
+`fruit-agent-orchestrate/references/orchestrate-config.md` → "Storage block"). Read:
+
+- **close command** — the resolved close command from the `enrichment` block (pmtools: `pmtools close N`; lccjs: `npm run close N`). Below, **`<close-cmd> N`** means this resolved command.
+- **`storage.errors.enabled` / `storage.errors.logCommand` / `storage.dbPath`** — for the Q6 error self-audit. If `storage.errors.enabled` is `false`, **skip Q6** (error logging disabled). Otherwise `<db>` = resolved `storage.dbPath` (default `~/.pmtools/<repo>/pmtools.db`; lccjs `~/.lccjs/lccjs.db`) and `<error-log-cmd>` = resolved `storage.errors.logCommand` (`null` ⇒ `pmtools error log`; lccjs `npm run error:log`).
+- **`storage.velocity.enabled`** — if `false`, ignore any velocity mention below (velocity tracking is disabled for this project).
+
+The checklist content and intent are project-agnostic.
 
 ## Trigger
 
@@ -15,7 +26,7 @@ Every substantive puzzle close — any ticket whose work produced code changes, 
 
 ## Skip when
 
-- Pure velocity-log-only commits (no scope change, just a CSV update)
+- Pure velocity-log-only commits (no scope change, just a velocity row / CSV mirror update — and only where `storage.velocity.enabled`)
 - Pure PM/triage sessions with no code or doc output
 
 (Duration is **not** a skip reason — a sub-minute close can still hide a fileable finding. The gate is user approval, not turn length; see the approval note above.)
@@ -83,10 +94,10 @@ Is there a follow-up question for a human, Charlie, or Prof. Dos Reis that has n
 
 ---
 
-**Q6 — Error self-audit** (RULES.md 16 / R021)
+**Q6 — Error self-audit** (RULES.md 16 / R021) — *skip entirely if `storage.errors.enabled` is `false`.*
 Re-read your session from claim to now. Did any tool/Bash/git/`gh`/claim call fail, any hook block, any permission get denied, or any schema/validation check fail this session — *including* ones you retried and resolved?
 
-- Yes → confirm each has an `errors` row (`sqlite3 ~/.lccjs/lccjs.db "SELECT id,error_type FROM errors WHERE ticket=N"`) or log it now via `npm run error:log`.
+- Yes → confirm each has an `errors` row (`sqlite3 <db> "SELECT id,error_type FROM errors WHERE ticket=N"`) or log it now via the resolved `<error-log-cmd>`.
 - Either way → state the outcome in the closing comment: `error self-audit: N row(s) logged` or `error self-audit: no loggable errors this session`. (Silence is not a pass — that is the #1108/#1117 failure mode.)
 
 ---
@@ -96,7 +107,7 @@ Re-read your session from claim to now. Did any tool/Bash/git/`gh`/claim call fa
 All questions answered → emit one of:
 
 ```
-✅ GREEN — all clear. Proceed with npm run close N.
+✅ GREEN — all clear. Proceed with <close-cmd> N.
 ```
 
 or
@@ -108,7 +119,7 @@ or
   (filing is not optional — a wrong ticket can be closed immediately)
 ```
 
-Only proceed to `npm run close N` after reaching GREEN, or after filing tickets for every AMBER item and re-confirming.
+Only proceed to `<close-cmd> N` after reaching GREEN, or after filing tickets for every AMBER item and re-confirming.
 
 ## Real-world examples (from lccjs session history)
 
