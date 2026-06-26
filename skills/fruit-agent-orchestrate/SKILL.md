@@ -55,6 +55,16 @@ stale-marker/claim signal — e.g. `npm run puzzle:status` (lccjs) or `<pmtools>
 If it did not resolve, skip it and note `(puzzle-status enrichment unavailable for this project)`
 in the pre-flight section. Likewise `preflightCommand` is used only where resolvable.
 
+**Active-claims signal (in-flight detection — pmtools#70).** Also run the status
+enrichment with `--json` (e.g. `<statusCommand> --json`) and read its top-level
+**`claims`** array — the issue numbers with a live `refs/claims/issue-N` on
+**origin**. This is the *reliable, cross-clone-safe* in-flight signal: the claim
+ref lives on origin, so it is visible from any clone and independent of `git
+worktree list` (which misses a sibling clone's worktrees) and of the `br-/wt-`
+branch-naming scheme. Step 4 uses `claims` as the **primary** busy/in-flight
+source. If the command errors, emits no JSON, or has no `claims` key (a pre-#70
+harness), record that — Step 4 falls back to `git worktree list` **with a warning**.
+
 **Freshness contract.** This skill takes a snapshot of *open* issue state at triage time and freezes it into prose that is consumed asynchronously — often one agent at a time, over a long session — while those same agents are rapidly closing tickets. So the snapshot decays: a later assignment can name a `#N` that closed hours earlier. To bound that staleness, capture the `date` above and stamp it on the output (see Output shape), and treat the output as **single-round / short-lived** — re-run the skill each round (or after several closes) rather than reusing one assignment list across a multi-hour session. (#1159)
 
 ## Step 2 — pre-flight cleanup
@@ -80,7 +90,7 @@ Rank actionable issues using the full puzzle-triage algorithm:
 - 🧑 **Requires human routing** — has `humans-only`, `decision`, or `human-decision-required` label → separate section, not assigned to any agent. List these tickets under `## 🧑 Requires human routing` so the human is aware. The `guide-human-decision` skill handles them when a human explicitly directs an agent at one.
 - 💤 **Icebox** — has `proposal` or `wontfix` label → separate section, not ranked for action
 - ⛔ **Blocked** — has `blocked` label → separate section, note blocker, not grabbable
-- 🔵 **In-flight** — has a live worktree (from `git worktree list`) → separate section, skip for assignment
+- 🔵 **In-flight** — its issue is in Step 1's `claims` array (primary) and/or it has a live worktree (`git worktree list`) → separate section, skip for assignment (see Step 4)
 
 **Within Actionable, order by:**
 1. Severity: 🔴 `severity:high` → 🟠 `severity:medium` → 🟡 `severity:low` → ⚪ untriaged
@@ -105,20 +115,40 @@ Render the actionable queue as a compact table. Keep it scannable — one line p
 
 ## Step 4 — agent roster (fleet only; dynamic in-flight detection)
 
-The roster is **`config.roster`** (default the 8 fruits APPLE … HONEYDEW). Derive who is busy
-from the `git worktree list` output (Step 1): parse each non-main entry's branch with
-**`config.worktreeBranchPattern`** (default `^(?<agent>[a-z]+)/issue-(?<issue>\d+)`) — the
-`agent` capture is a **busy agent**, in-flight on the `issue` capture. Mark those busy and the
-rest available:
+The roster is **`config.roster`** (default the 8 fruits APPLE … HONEYDEW). Derive in-flight
+state from **two signals, preferring the reliable one** (pmtools#70):
+
+1. **Claimed issues (PRIMARY) — Step 1's `claims` array** from `<statusCommand> --json`. Every
+   issue in `claims` has a live `refs/claims/issue-N` on origin → it is **in-flight: never assign
+   it this round**, regardless of which agent holds it. This is the signal that prevents the
+   double-assign #70 documents (a claimed ticket handed to a second agent), and it is cross-clone-
+   safe + naming-scheme-independent.
+2. **Busy agents (best-effort) — `git worktree list`** (Step 1), parsing each non-main entry's
+   branch with **`config.worktreeBranchPattern`** (default updated for the `br-/wt-` scheme:
+   `^(?:br-)?(?<agent>[a-z0-9]+(?:-[0-9]+)?)/(?:[a-z0-9]+-[a-z0-9]+-)?issue-(?<issue>\d+)`). The
+   `agent` capture maps a busy agent → its `issue`, so you can skip that agent and label it
+   `🔵 <FRUIT> — in-flight on #N`. Worktree-list only sees *this* clone's worktrees, so it may not
+   name the agent behind a cross-clone claim — but signal (1) already guarantees that issue is not
+   assigned.
 
 | Agent | State |
 |-------|-------|
-| each roster member + any other active agent | **available**, OR **busy — in-flight on #N** (derived from `git worktree list` via `worktreeBranchPattern`) |
+| each roster member + any other active agent | **available**, OR **busy — in-flight on #N** (its issue in `claims`, and/or its branch parsed from `git worktree list`) |
 
-- Do **not** assign new work to a busy agent this cycle.
-- **Surface, don't hide:** list each busy agent in the broadcast as `🔵 <FRUIT> — in-flight on #N, skip this cycle`, so the human can see *why* an agent was skipped and override if needed.
+- Do **not** assign new work to a busy agent, nor any issue in `claims`, this cycle.
+- **Surface, don't hide:** list each busy agent as `🔵 <FRUIT> — in-flight on #N, skip this cycle`.
 
-> #630 ruling: Q1 = parse `git worktree list` inline (the data is already in Step 1; no extra tool call); Q2 = surface, don't silently skip. The cleaner long-term home is the `puzzle:status --json` redesign (#1046), which reports `CLAIMED`/`IN-PROGRESS` directly. **Cross-clone caveat:** `git worktree list` only sees *this* checkout's worktrees — an agent working in a different clone won't appear here; the `claim` guard (#1010) is the backstop for that residual case. Origin repro: #1335.
+**Graceful fallback (with warning).** If Step 1's `claims` is unavailable — the status command did
+not resolve, errored, returned non-JSON, or has no `claims` key (a pre-#70 harness) — fall back to
+`git worktree list` + `worktreeBranchPattern` as the **sole** in-flight signal **and emit a visible
+warning** in the output:
+`⚠ in-flight detection DEGRADED — status --json \`claims\` unavailable; using \`git worktree list\` only, which misses sibling-clone worktrees and is regex-fragile (pmtools#70).`
+Never silently proceed on the degraded signal — the warning is the point (the #70 bug was an
+*invisible* detection gap, not a merely stale snapshot).
+
+> #630 ruling: surface, don't silently skip. **#70 supersedes the old "`git worktree list` is the
+> sole signal" approach:** the authoritative in-flight source is now the `claims` array (origin
+> `refs/claims/*`), with worktree-list demoted to best-effort agent-naming + the fallback above.
 
 ## Step 5 — produce assignments (fleet only)
 
@@ -250,7 +280,7 @@ has no claim guard.> Re-run this skill after closing a few issues rather than re
 
 ## ~~STUB~~ RESOLVED (#630) — agent state detection from worktrees
 
-Implemented in **Step 4** above: branch names from `git worktree list` are parsed for fruit identities, busy agents are marked in-flight on their issue, excluded from new assignment, and surfaced as `🔵 <FRUIT> — in-flight on #N`. The `puzzle:status --json` upgrade path (richer than `git worktree list`, cross-clone aware) is tracked in #1046.
+Implemented in **Step 4** above. The `puzzle:status --json` upgrade path (#1046) has **landed for pmtools** (#70): `status --json` now reports a `claims` array (origin `refs/claims/*`), and Step 4 consumes it as the **primary** cross-clone in-flight signal, with `git worktree list` + `worktreeBranchPattern` demoted to best-effort agent-naming + a warned fallback when `claims` is unavailable.
 
 ## STUB — agent context from pasted messages
 
@@ -259,5 +289,6 @@ Future: after collecting data, prompt the user to paste the most recent output m
 ## ~~STUB~~ RESOLVED — dynamic agent registration
 
 The roster is now **`config.roster`** in `.claude/orchestrate.json` (default the 8 standard
-fruits). To run with a different or larger set, edit that key — no skill change. Busy agents
-are still derived live from worktree branches via `config.worktreeBranchPattern`.
+fruits). To run with a different or larger set, edit that key — no skill change. In-flight issues
+come primarily from `status --json`'s `claims` (#70); busy-agent *names* are derived best-effort
+from worktree branches via `config.worktreeBranchPattern` (br-/wt- tolerant), with a warned fallback.
