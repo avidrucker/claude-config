@@ -126,17 +126,31 @@ state from **two signals, preferring the reliable one** (pmtools#70):
 2. **Busy agents (best-effort) — `git worktree list`** (Step 1), parsing each non-main entry's
    branch with **`config.worktreeBranchPattern`** (default updated for the `br-/wt-` scheme:
    `^(?:br-)?(?<agent>[a-z0-9]+(?:-[0-9]+)?)/(?:[a-z0-9]+-[a-z0-9]+-)?issue-(?<issue>\d+)`). The
-   `agent` capture maps a busy agent → its `issue`, so you can skip that agent and label it
-   `🔵 <FRUIT> — in-flight on #N`. Worktree-list only sees *this* clone's worktrees, so it may not
-   name the agent behind a cross-clone claim — but signal (1) already guarantees that issue is not
-   assigned.
+   `agent` capture maps a busy agent → its `issue`, so you can label that agent
+   `🔵 <FRUIT> — in-flight on #N` (annotate it — still give it a fresh next assignment, #8; do not
+   skip it). Worktree-list only sees *this* clone's worktrees, so it may not name the agent behind a
+   cross-clone claim — but signal (1) already guarantees that issue is not assigned.
 
-| Agent | State |
-|-------|-------|
-| each roster member + any other active agent | **available**, OR **busy — in-flight on #N** (its issue in `claims`, and/or its branch parsed from `git worktree list`) |
+| Agent | State | Still gets an assignment this round? |
+|-------|-------|--------------------------------------|
+| each roster member + any other active agent | **available**, OR **busy — in-flight on #N** (its issue in `claims`, and/or its branch parsed from `git worktree list`) | **Yes — always** (busy agents get a fresh *next* assignment; see below) |
 
-- Do **not** assign new work to a busy agent, nor any issue in `claims`, this cycle.
-- **Surface, don't hide:** list each busy agent as `🔵 <FRUIT> — in-flight on #N, skip this cycle`.
+Busy/in-flight state is a property to **annotate**, never a reason to **skip an agent**. Two distinct
+rules — keep them separate:
+
+- **Never re-assign an in-flight *ticket* (#70 claim-safety, unchanged).** Every issue in `claims`
+  (and any worktree-detected in-flight issue) is removed from the assignable pool this round — it is
+  never handed to a second agent, regardless of who holds it. This invariant is hard and is **not**
+  what #8 changes.
+- **Always assign every *agent*, busy or idle (#8).** A busy agent is **not** skipped. Give it a
+  fresh *next* assignment drawn from the assignable pool (which already excludes every `claims`
+  ticket), written to **assume the agent will have finished its current ticket** by the time a human
+  relays the assignment to it. Being busy/occupied is never a valid reason to withhold work — an idle
+  agent defeats the purpose of this skill, whose whole job is to keep every lane fed.
+- **Surface the busy state, don't drop the agent:** annotate a busy agent's paragraph
+  `🔵 <FRUIT> — currently finishing #N; your next assignment for when that lands:` and then write the
+  normal assignment. The agent stays on the roster and in the bin-packing (Step 5a) exactly like an
+  idle agent.
 
 **Graceful fallback (with warning).** If Step 1's `claims` is unavailable — the status command did
 not resolve, errored, returned non-JSON, or has no `claims` key (a pre-#70 harness) — fall back to
@@ -149,6 +163,9 @@ Never silently proceed on the degraded signal — the warning is the point (the 
 > #630 ruling: surface, don't silently skip. **#70 supersedes the old "`git worktree list` is the
 > sole signal" approach:** the authoritative in-flight source is now the `claims` array (origin
 > `refs/claims/*`), with worktree-list demoted to best-effort agent-naming + the fallback above.
+> **#8 supersedes the old "skip the busy agent this cycle" ruling:** busy state now only *annotates*
+> an agent's paragraph — every agent still receives a fresh next assignment. The thing that gets
+> skipped is the in-flight *ticket* (never re-handed), never the *agent*.
 
 ## Step 5 — produce assignments (fleet only)
 
@@ -163,6 +180,12 @@ Before writing paragraphs, partition the actionable issue queue by `area:*` labe
 3. Issues with **no `area:*` label** go into a **wildcard pool** — assignable to any agent.
 4. Sort clusters by size (largest first). Assign each cluster to the agent with the fewest issues so far (greedy bin-packing). Never assign overlapping area clusters to the same agent.
 5. Distribute wildcard issues to the lightest-loaded agents after cluster assignment.
+
+**Busy agents participate in bin-packing as full members (#8).** Treat a busy/in-flight agent as
+available for the purpose of assigning its *next* ticket — it is in the roster being bin-packed, not
+removed from it. Its current in-flight ticket is already excluded from the pool (Step 4), so there is
+no double-assign risk. Prefer to keep a busy agent in the same `area:*` lane it is already working
+when a fresh ticket exists there (lane continuity), but this is a soft preference, not a hard rule.
 
 Goal: each agent touches **at most one `area:*` cluster** per session. If there are more agents than clusters, some agents receive only wildcard issues — that is acceptable.
 
@@ -184,6 +207,10 @@ For each agent, write one plain paragraph. Rules:
 - State the agent's assigned area lane: "Your area lane: `area:X`" (or "area unlabelled" for wildcard-only agents)
 - One sentence of rationale (why this agent, why this ticket now)
 - If the agent has pre-flight cleanup (from Step 2), lead with that before the ticket assignment
+- **If the agent is busy/in-flight (#8), still write its paragraph** — open it with
+  `🔵 currently finishing #N; your next assignment for when that lands:` then write the normal
+  assignment. Never emit "skip this cycle" or omit a busy agent from the `## 👥 Assignments` list.
+  The assignment is phrased to assume #N is done by the time the agent reads it.
 - Format must be directly copy-pasteable as a human instruction to that agent
 - **NEVER emit a coordination instruction between agents** (#1438). Assignment paragraphs must not contain the words "coordinate", "land his/her fix first", "if you both end up in", or any phrasing that makes one agent's safety or correctness depend on another agent's actions or timing. If you find yourself about to write such a sentence, the two tickets collide on a file and one of them should have been **held** by the 5a-bis guard, not assigned — go back and hold it.
 - **Do NOT append a per-paragraph "verify the issue is OPEN / run the preflight command `<N>`" instruction** (e.g. the resolved `preflightCommand`, or `npm run preflight <N>` on lccjs). The freshness re-check is surfaced **once**, globally, in the `## ⏱ Triaged as of …` banner (see Output shape) — repeating it per agent is boilerplate that bloats each assignment and undercuts its self-contained legibility. (#1159 freshness contract, kept boilerplate-free per the #1200/#1201 assignment-legibility rubric.)
@@ -230,6 +257,9 @@ multi-hour session.
 [tickets deferred to a later round because they would touch a file another assigned ticket touches; one line each with the colliding #N and file, e.g. `⏸ #1196 held — collides with #1111 on scripts/claim.js`. Omit this section if empty.]
 
 ## 👥 Assignments
+(Every roster agent appears here — idle or busy. A busy agent's paragraph opens with
+`🔵 currently finishing #N; your next assignment for when that lands:` then the assignment. No agent
+is ever dropped for being busy — #8.)
 
 APPLE: [plain paragraph]
 
