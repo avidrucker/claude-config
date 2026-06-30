@@ -92,10 +92,10 @@ Rank actionable issues using the full puzzle-triage algorithm:
 - ⛔ **Blocked** — has `blocked` label → separate section, note blocker, not grabbable
 - 🔵 **In-flight** — its issue is in Step 1's `claims` array (primary) and/or it has a live worktree (`git worktree list`) → separate section, skip for assignment (see Step 4)
 
-**Within Actionable, order by:**
-1. Severity: 🔴 `severity:high` → 🟠 `severity:medium` → 🟡 `severity:low` → ⚪ untriaged
-2. Shortest estimate first (from `@todo #N:Est` marker if present; `~` if absent)
-3. Lowest issue number as tiebreak
+**Within Actionable, order by this explicit precedence (#9) — apply the keys in order, each only breaking ties left by the one above:**
+1. **Bugs first.** A ticket carrying the `bug` label (or a `bug(...)`/`fix(...)` type prefix in its title) outranks every non-bug ticket, regardless of severity or ICE. A bug is a broken promise; it jumps the queue.
+2. **Blockers second.** Among tickets of the same bug/non-bug tier, a ticket that **unblocks other open work** sorts ahead — i.e. another open ticket carries `Sequenced after: #this`, or this ticket is named as the dependency of a `blocked`/`sequenced`/dependency-coupled-grooming ticket (Step 2). High leverage: closing it frees other work. **Disambiguation:** "blocker" here = *a ticket that blocks others* = high leverage. It is **not** the `blocked` label — those are partitioned out above into the non-grabbable `⛔ Blocked` section and never reach this ordering.
+3. **ICE / Yegor score last.** Everything still tied falls to the established ranking, which is the ICE proxy (Impact×Confidence×Ease): severity (🔴 `severity:high` → 🟠 `severity:medium` → 🟡 `severity:low` → ⚪ untriaged) → shortest estimate (`@todo #N:Est` marker if present; `~` if absent) → lowest issue number. ICE is the **lowest-priority** sort key — applied only after bugs and blockers are placed, never ahead of them.
 
 **Tolerate missing labels.** The labels above are a shared convention but are **not**
 required. A repo that hasn't applied them yet (e.g. freshly migrated) simply has every
@@ -176,7 +176,7 @@ Never silently proceed on the degraded signal — the warning is the point (the 
 Before writing paragraphs, partition the actionable issue queue by `area:*` label:
 
 1. Extract the `area:*` label(s) from each actionable issue (captured in Step 1). An issue with multiple `area:*` labels belongs to its first-listed `area:*` label.
-2. Build a cluster map: `area → [issue list]`, sorted within each cluster by Yegor priority (severity → estimate → number).
+2. Build a cluster map: `area → [issue list]`, sorted within each cluster by the Step 3 precedence (bug → blocker → ICE/Yegor).
 3. Issues with **no `area:*` label** go into a **wildcard pool** — assignable to any agent.
 4. Sort clusters by size (largest first). Assign each cluster to the agent with the fewest issues so far (greedy bin-packing). Never assign overlapping area clusters to the same agent.
 5. Distribute wildcard issues to the lightest-loaded agents after cluster assignment.
@@ -189,12 +189,16 @@ when a fresh ticket exists there (lane continuity), but this is a soft preferenc
 
 Goal: each agent touches **at most one `area:*` cluster** per session. If there are more agents than clusters, some agents receive only wildcard issues — that is acceptable.
 
+**One assignment per lane per round (hard default — #9).** Every agent gets its **own** work lane, and a lane (an `area:*` cluster) carries **at most one** assignment this round. Do **not** stack a second ticket into a lane already assigned this round — neither a second ticket to the same agent, nor a second agent into the same lane. This default stands **even under #8's "keep every agent fed" pressure**: when there are more free agents than lanes, an **idle agent is preferable to two agents silently sharing a lane**. Closing #8 removed "skip the busy agent" as a reason to under-assign; it did **not** license doubling a lane to manufacture work.
+
+**Narrow exception — forced lane doubling.** Put a second assignment in a lane **only** when both hold: (a) there is genuinely no other lane or wildcard ticket left to give the second agent, **and** (b) the 5a-bis file-overlap check passes cleanly, so you have **high confidence** the two tickets won't touch the same files or cause a merge conflict. When you exercise it, you MUST surface it under `## ⚠ Lane doubled (forced)` in the output: name the lane, both `#N`s, and one sentence on why the overlap risk is judged near-zero. **Never double a lane silently**, and never resolve the doubling by telling the two agents to coordinate (that is the #1438 violation — hold one instead). Wildcard-pool issues are not a shared lane, but remain individually governed by the 5a-bis same-file guard.
+
 ### 5a-bis — same-file collision guard (hard refusal) (#1438)
 
 The `area:*` lane gate is **necessary but not sufficient**: two tickets can share neither area-subtheme yet still edit the same file (e.g. #1111 fixes `scripts/claim.js` behavior and #1196 adds tests for `claim.js` main() — different sub-themes, same file). Before finalizing assignments, run a file-overlap check:
 
 1. For each candidate assignment, infer its likely file target(s) from the ticket's type/scope, title, and any file paths named in the body (e.g. `scripts/claim.js`, `src/core/interpreter.js`). When in doubt, bias toward *assuming* overlap.
-2. If two candidate assignments plausibly touch the **same file**, you MUST NOT co-schedule them this round. **Refuse** — assign the higher-priority ticket (Yegor order) to one agent and **hold** the other.
+2. If two candidate assignments plausibly touch the **same file**, you MUST NOT co-schedule them this round. **Refuse** — assign the higher-priority ticket (Step 3 precedence: bug → blocker → ICE) to one agent and **hold** the other.
 3. List every held ticket under the `## ⏸ Held — same-file collision` output section with the reason, e.g. `⏸ #1196 held — would collide with #1111 on scripts/claim.js this round`.
 
 This is a hard refusal, not a softenable heuristic. **Never** resolve a same-file overlap by telling the two agents to coordinate — that delegates a concurrency-safety decision to runtime agents and defeats the worktree-per-task isolation model. Each emitted assignment must be executable in isolation with **zero** cross-agent negotiation. (Full file-target precision wants the `puzzle:status --json` seam #1046; until then, the refuse-on-plausible-overlap heuristic above is the contract.)
@@ -220,7 +224,7 @@ Good fit heuristics:
 - Match ticket role (WRITER / RESEARCHER / ARCHITECT / DEV) to the agent's recent work domain if known from context the user provided
 - Prefer unblocking tickets (e.g. a RESEARCH that unblocks a WRITER) when an agent is free and the pair exists
 - Medium-severity tickets before low when an agent is fresh
-- Never assign two agents to the same `area:*` cluster (enforced by 5a; flag it explicitly if unavoidable due to too few clusters)
+- Never assign two agents to the same `area:*` cluster — one assignment per lane per round (5a hard default, #9); only the narrow forced-doubling exception applies, and it must be surfaced under `## ⚠ Lane doubled (forced)`
 - Never assign two agents tickets that touch the same **file** — the 5a-bis guard holds one of them; the held ticket never appears as an assignment this round
 
 ## Output shape
@@ -244,7 +248,7 @@ multi-hour session.
 ## ⚠ Pre-flight cleanup
 [stale markers and worktrees, attributed to owning agent]
 
-## 🎯 Actionable — Yegor priority order
+## 🎯 Actionable — bug → blocker → ICE order
 [compact ranked table]
 
 ## 🧑 Requires human routing
@@ -255,6 +259,9 @@ multi-hour session.
 
 ## ⏸ Held — same-file collision
 [tickets deferred to a later round because they would touch a file another assigned ticket touches; one line each with the colliding #N and file, e.g. `⏸ #1196 held — collides with #1111 on scripts/claim.js`. Omit this section if empty.]
+
+## ⚠ Lane doubled (forced)
+[only when the narrow 5a exception was exercised — one line per doubled lane: the lane, both `#N`s, and why overlap risk is near-zero, e.g. `⚠ area:parser — #102 + #107 doubled; disjoint files (lexer.js vs grammar.js), no other lane free for GRAPE`. Omit this section if empty (the common case).]
 
 ## 👥 Assignments
 (Every roster agent appears here — idle or busy. A busy agent's paragraph opens with
@@ -292,7 +299,7 @@ has no claim guard.> Re-run this skill after closing a few issues rather than re
 ## ⚠ Pre-flight cleanup
 [stale markers only, if the status enrichment resolved; else omit]
 
-## 🎯 Actionable — Yegor priority order
+## 🎯 Actionable — bug → blocker → ICE order
 [compact ranked table: #N · severity · est · title]
 
 ## ▶ Next up
