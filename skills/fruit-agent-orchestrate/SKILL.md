@@ -91,6 +91,7 @@ Rank actionable issues using the full puzzle-triage algorithm:
 - 💤 **Icebox** — has `proposal` or `wontfix` label → separate section, not ranked for action
 - ⛔ **Blocked** — has `blocked` label → separate section, note blocker, not grabbable
 - 🔵 **In-flight** — its issue is in Step 1's `claims` array (primary) and/or it has a live worktree (`git worktree list`) → separate section, skip for assignment (see Step 4)
+- 🧱 **Epic / umbrella / parent / tracker — not directly assignable** (#10) — a *container* ticket, not a unit of work; only its child slices are assignable. Partition it out of the actionable pool and run the **Epic resolution protocol** below. Never emit an epic as an agent's assignment paragraph, and never rank it in the `🎯 Actionable` table.
 
 **Within Actionable, order by this explicit precedence (#9) — apply the keys in order, each only breaking ties left by the one above:**
 1. **Bugs first.** A ticket carrying the `bug` label (or a `bug(...)`/`fix(...)` type prefix in its title) outranks every non-bug ticket, regardless of severity or ICE. A bug is a broken promise; it jumps the queue.
@@ -101,6 +102,32 @@ Rank actionable issues using the full puzzle-triage algorithm:
 required. A repo that hasn't applied them yet (e.g. freshly migrated) simply has every
 issue sort as ⚪ untriaged, ordered by estimate then number; the `humans-only`/`proposal`/
 `wontfix`/`blocked` partitions just come up empty. Never error on an absent label.
+
+### Epic resolution protocol (#10)
+
+**Never assign an epic/umbrella/parent/tracker ticket as-is** — it is a container, not a
+unit of work. Only its child slices are directly assignable. Apply this to every ticket the
+partition flags as an epic:
+
+**Detect (cheapest first).** A ticket is an epic/parent when *any* signal fires; when in
+doubt, bias toward treating it as a container:
+- **Label** — carries an `epicLabels` label (config; default `epic`, `umbrella`, `tracker`, `parent`).
+- **Title tag** — carries an `epicTitleTags` marker (config; default `[epic]`, `[umbrella]`, `[tracker]`, `[parent]`).
+- **Body task-list of child refs** — the ticket's substance is a `- [ ] #N` checklist of child issues.
+- **GitHub sub-issues (structural truth)** — a non-empty `sub-issues` list (visible in `gh issue view N`; via `--json` where the provider adapter supports it). Authoritative, but costs a per-ticket call — use it to *confirm* a ticket already flagged cheaply by label/title/body, not to probe every issue (same pre-filter discipline as the `sequenced` label, Step 2).
+
+**Resolve.** For each detected epic:
+1. **Enumerate its children and assign the first actionable one *instead of the epic*.** Pick the first child that is open, unclaimed, and not itself an epic, obeying the same Step 3 precedence (bug → blocker → ICE) and the sequencing / in-flight / same-file guards. Assign **that child**, and annotate its assignment paragraph `↳ from epic #<parent>`. The epic itself never enters the assignable pool.
+2. **No open actionable child** → do **not** assign the epic. Surface it under `## 🧱 Epics — file a child slice` (Output shape) with the reason and a concrete next step:
+   - **No child filed at all** → suggest the first slice explicitly: a proposed child title + one-line scope + `parent: #<epic>`, so a human/agent can file it before work starts.
+   - **All children closed** → mark `possibly complete — verify & close`; do not assign.
+   - **All children claimed / in-flight** → hold; nothing to assign from this epic this round.
+
+**Do not soften this into an assignment.** Never write an agent paragraph that says "take
+epic #N and file its children first" — decomposing an epic is a step surfaced in the epics
+section, **not** code-work handed to an agent's lane. If you catch yourself putting an epic's
+number in an agent paragraph, stop: assign its first child, or (if none) move it to the epics
+section.
 
 Render the actionable queue as a compact table. Keep it scannable — one line per issue.
 
@@ -254,6 +281,14 @@ multi-hour session.
 ## 🧑 Requires human routing
 [tickets with humans-only / decision / human-decision-required labels — not assigned to any agent]
 
+## 🧱 Epics — file a child slice
+[epic/umbrella/parent/tracker tickets that could not resolve to an assignable child (#10) — one
+line each with the reason and the next step, e.g.
+`🧱 #100 — no child filed; file first slice "Split lexer from reader" (scope: extract reader.js from lexer.js; parent: #100)`
+or `🧱 #140 — all children closed; possibly complete, verify & close`. Omit this section if empty.
+An epic whose first child WAS assigned does NOT appear here — that child shows up in Assignments
+annotated `↳ from epic #100`.]
+
 ## ⛔ Blocked  /  💤 Icebox  /  🔵 In-flight
 [brief lists]
 
@@ -305,9 +340,15 @@ has no claim guard.> Re-run this skill after closing a few issues rather than re
 ## ▶ Next up
 #N — <title>. <one sentence: why this is the top pick now.>
 [optionally list the next 2–3 after it]
+[If the top pick resolves from an epic, name the child and annotate `↳ from epic #N` — never
+pick the epic itself (#10).]
 
 ## 🧑 Requires human routing
 [humans-only / decision / human-decision-required — omit if empty]
+
+## 🧱 Epics — file a child slice
+[epics with no assignable child (#10) + the suggested first slice (title + one-line scope +
+`parent: #N`), same form as the fleet section. Omit if empty.]
 
 ## ⛔ Blocked  /  💤 Icebox
 [brief lists — omit if empty]

@@ -33,6 +33,10 @@ dependencies. This keeps the ranking honest and the taxonomy identical across re
   "worktreeBranchPattern": "^(?<agent>[a-z]+)/issue-(?<issue>\\d+)",  // fleet only
   "defaultBase": "origin/main",      // fleet only — claim's base branch
 
+  // --- epic / umbrella / parent detection (#10) — never assign a container ticket as-is ---
+  "epicLabels":    ["epic","umbrella","tracker","parent"],   // any match => container, not assignable
+  "epicTitleTags": ["[epic]","[umbrella]","[tracker]","[parent]"],  // title-prefix fallback
+
   // --- centralized PM tooling (pmtools) ---
   "pmtools": {
     "home": "~/code/pmtools",        // clone location; null => enrichment disabled
@@ -101,6 +105,8 @@ shells to the `sqlite3` CLI.
 | `issueLimit` | int | `50` | Open-issue fetch cap. |
 | `worktreeBranchPattern` | regex | `^(?<agent>[a-z]+)/issue-(?<issue>\d+)` | Parses busy agents from `git worktree list`; fleet only. |
 | `defaultBase` | string | `"origin/main"` | Base ref for `claim`; fleet only. |
+| `epicLabels` | string[] | `["epic","umbrella","tracker","parent"]` | A ticket with any of these labels is a **container**, never directly assignable — the skill resolves it to its first child slice or (if none) suggests filing one (#10). Structural GitHub `sub-issues` also count, regardless of labels. |
+| `epicTitleTags` | string[] | `["[epic]","[umbrella]","[tracker]","[parent]"]` | Title-prefix fallback for repos that tag epics in the title rather than by label. |
 | `pmtools.home` | path\|null | `null` | Clone of the pmtools repo; `null` disables enrichment. |
 | `pmtools.port` | `"py"\|"js"\|"bb"`\|null | derive from `languages[0]` | Which port to invoke. |
 | `enrichment.*Command` | string\|null | `null` | Explicit command override; wins over `pmtools` derivation. |
