@@ -54,27 +54,33 @@ as a legacy fallback; `ledger.json` wins where both exist.
 
 **Step 0 every time:** confirm `claims-data/` is git-excluded. If not, add it and say so.
 
-## The admission rubric — a binary 6/6 screen
+## The admission rubric — a binary 11/11 screen
 
-Six criteria. **All six, or it does not enter the ledger.** The last three are the ones people
-skip, and they map to **when · where · why**.
+Eleven criteria. **All eleven, or it does not enter the ledger.** Criteria **4–6** are the ones
+people skip, and they map to **when · where · why**. This is the skill's **built-in global rubric**;
+a project may override it with a non-empty `claims-data/rubric.md` (an empty file falls back here).
 
 | # | Criterion | The test — apply literally | On fail |
 |---|---|---|---|
-| 1 | **Falsifiable** | *Write the sentence describing the observation that would make this FALSE.* If you can't write it, it isn't a claim. | Convert to a **question** (`Q`), or to a decision (→ an issue). |
-| 2 | **Objective** | Two competent people with the same evidence must reach the same verdict. Scan for: value adjectives (*clean, mature, robust, fast, simple*), bare comparatives (*simpler than*), hedges (*probably, seems*). | Replace with a **metric + threshold**. Unsalvageable → `bad-claims.md`. |
-| 3 | **Unambiguous** | Every noun resolves to exactly one referent. Scan for vague scope verbs: *supports, handles, works with, integrates*. | Name the exact function / file / table / command. |
-| 4 | **Anchored — WHEN** | The statement names its as-of: a commit SHA, a date, a data-pin — or is a standing fact about an external technology. Scan for *latest, current, now, recently, `~`, about, roughly*. | Add the anchor. Convert an approximate quantity to a falsifiable **bound** (`>= N`). |
-| 5 | **Situated — WHERE / WHICH** | **The headline alone names whose thing this is.** A reader who sees only the one-line statement must know which system, repo, or component it is about — without opening the body. | Spend 1–4 words on the owner. See below. |
-| 6 | **Relevant — SO WHAT** | The entry carries a **`Bears-on:`** naming the concrete fix, bug, feature, decision, or concern this claim would inform. | Can't name one? It's **trivia**. Drop it, or file it as a question. |
+| 1 | **Falsifiable** | Is this provable true/false? If you can't say what would make it wrong, it isn't a claim. *(Not-yet-known ≠ not-falsifiable.)* | Convert to a **question** (`Q`), or to a decision (→ an issue). |
+| 2 | **Objective** | No vague adjectives or hedges — *clean, better, probably, quiet* are subjective/relative. | Replace with a **metric + threshold**. Unsalvageable → `bad-claims.md`. |
+| 3 | **Unambiguous** | Point at real things — name the specific file / function / table / identifier. If it could refer to more than one thing, it's ambiguous. | Name the exact referent. |
+| 4 | **Anchored OR Evergreen** | If it can change over time/version, timestamp it **DATE + SHA**; otherwise it must be **permanently** true/false. Anything that can rot with time or a version change is out. | Add the anchor, or mark it **evergreen** (and name the version via #5). |
+| 5 | **Situated — WHERE / WHICH** | From the headline **alone** a reader knows precisely **which** sub-system / file / component the claim is about. | Spend 1–4 words on the owner. See below. |
+| 6 | **Relevant — SO WHAT** | Carries a **`Bears-on:`** naming the decision / bug / feature it would change. If it affects nothing, it isn't a valuable claim. | Name what it informs, or drop it / file it as a question. |
+| 7 | **Non-obvious** | If it's easily queried or grep'd, it isn't worth a claim. Valuable claims are non-intuitive, easy to get wrong, or need cross-cutting knowledge — even an expert might have to look it up. | Drop the trivial lookup; keep only what is worth pinning. |
+| 8 | **Full-sentence** | A complete sentence, not a fragment — plain, accessible language preferred. | Rewrite as a full sentence. |
+| 9 | **Descriptive** | States what **IS**, not what **should** be. A "should", a plan, or a preference is a decision or an opinion, not a claim. | Move it to an issue / ADR; keep only the factual half. |
+| 10 | **Scope-honest** | No over-generalization — don't say *all* or *never* unless you actually observed and measured the whole set. | Bound it to what you measured (`>= N`, "in the N sampled…"). |
+| 11 | **Assessable** | How would you get the evidence? If you can't **query, test, or quote** the hard evidence, it isn't useful to us. | Name the method, or mark it `REPORTED` (not verifiable by you). |
 
 **Compound claims are allowed — there is no atomicity gate.** A claim may carry more than one truth
 condition; verify **one evidence item per conjunct** (see the kind-matching gate). A *genuinely*
 oversized claim may still be split into fresh sibling IDs with `Split-from:` lineage — case-by-case,
 never forced.
 
-**Procedure:** apply all six → **one** rewrite attempt → re-apply. Still failing? Mint the ID anyway
-and file it to `bad-claims.md` with the failed criteria named. Terminal.
+**Procedure:** apply all eleven → **one** rewrite attempt → re-apply. Still failing? Mint the ID
+anyway and file it to `bad-claims.md` with the failed criteria named. Terminal.
 
 ### 5 — Situated: the headline must carry its own context
 
