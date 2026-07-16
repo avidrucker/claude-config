@@ -10,8 +10,7 @@ description: >
   ("there are 1493 rows") that silently rots unless pinned in time. Triggers on: "track these claims",
   "verify these", "which of these is proven?", "build a claims ledger", "prove that with a test",
   "back that claim with a query", "is that number still true?", "what's the evidence for X?".
-  Config: the `claims` block of `.claude/orchestrate.json`; data lives in the repo's gitignored
-  `claims-data/`.
+  Config: `.claude/ledger.json`; data lives in the repo's gitignored `claims-data/<topic>/`.
 version: 0.1.0
 last_reviewed: 2026-07-13
 ---
@@ -30,14 +29,17 @@ The rule everything else serves:
 
 ## Project config
 
-Reads the `claims` block of `.claude/orchestrate.json`. **Works fully configless** — a missing file
-is not an error.
+Reads **`.claude/ledger.json`** — the dedicated config home, kept separate from
+`.claude/orchestrate.json` (which stays fleet/work config). **Works fully configless** — a missing
+file is not an error. A repo still carrying the old `claims` block inside `orchestrate.json` is read
+as a legacy fallback; `ledger.json` wins where both exist.
 
 ```jsonc
-"claims": {
+// .claude/ledger.json
+{
   "enabled": true,              // false => no-op, and say so
-  "dir": "claims-data",         // relative to the MAIN checkout root
-  "prefix": "PCS",              // null => derive from the repo dir name, uppercase, <=4 chars
+  "dir": "claims-data",         // ledgers root, relative to the MAIN checkout
+  "prefix": "PYC",              // null => first 3 letters of the repo dir name, uppercase
   "agentScoped": null,          // null => derive from mode == "fleet"
   "evidenceDir": "claims-data/evidence",
   // Words that mean different things in different systems here. A headline using one
@@ -234,11 +236,16 @@ is intact. So:
 ## IDs
 
 ```
-<PREFIX>[-<AGENT>]-<TYPE>-<NNN>
+<PREFIX>-<TYPE>-<NNN>[-<AGENT>]
 ```
 
-`PCS-FIG-C-001` · `PCS-C-001` (solo — the agent segment is simply **omitted**) · `PCS-FIG-Q-003`
+`PYC-C-001-FIG` · `PYC-C-001` (solo — the agent segment is simply **omitted**) · `PYC-Q-003-FIG`
 
+- **Prefix** from `ledger.json` `prefix` (default: first 3 letters of the repo dir name, uppercase —
+  `pycats` → `PYC`). The semantic part (`PYC-C-001`) reads first; the **agent is a trailing
+  collision-breaker**, present on every ID in a fleet ledger.
+- The linter still accepts the **legacy agent-first** form (`PYC-FIG-C-001`) so existing ledgers keep
+  linting during migration — but **mint the agent-last form**.
 - `TYPE` ∈ `C` (claim) · `Q` (question) · `CC` (composite).
 - `NNN` is monotonic **within its own (prefix, agent, type) namespace**.
 - **Race-free by construction:** each agent increments only its own namespace and is its only writer.
@@ -252,17 +259,30 @@ is intact. So:
 
 ## The files
 
+A ledger is organized **by topic** — one self-contained sub-ledger per investigation under
+`claims-data/<topic>/`. Point the linter at a topic dir.
+
 ```
-<main-repo>/claims-data/          # git-excluded
-├── README.md                     # self-describing rules (scaffolded from references/)
-├── unverified-claims.md          # LIFECYCLE
-├── verified-claims.md            # LIFECYCLE
-├── open-questions.md             # LIFECYCLE
-├── answered-questions.md         # LIFECYCLE
-├── bad-claims.md                 # ARCHIVE — terminal; entries enter, never leave
-├── INDEX.md                      # GENERATED — never hand-edit
-└── evidence/                     # raw pinned outputs: <ID>-e<N>.txt, sha256'd
+<main-repo>/claims-data/              # git-excluded
+├── README.md                         # self-describing rules (scaffolded from references/)
+├── rubric.md                         # PROJECT rubric override — empty by default → the skill's
+│                                     #   global rubric is used; fill it to override per project
+└── <topic>/                          # e.g. battle-graphics, battle-mechanics, user-interface, tooling
+    ├── unverified-claims.md          # LIFECYCLE
+    ├── verified-claims.md            # LIFECYCLE
+    ├── open-questions.md             # LIFECYCLE
+    ├── answered-questions.md         # LIFECYCLE
+    ├── bad-claims.md                 # ARCHIVE — terminal; entries enter, never leave
+    ├── scratchpad.md                 # FREE-FORM — notes / anything that fits nowhere else
+    ├── INDEX.md                      # GENERATED — never hand-edit
+    └── evidence/                     # raw pinned outputs: <ID>-e<N>.txt, sha256'd
 ```
+
+The **project rubric** (`claims-data/rubric.md`) sits at the ledger root, not per topic: empty by
+default → the skill falls back to its built-in global rubric; a non-empty file overrides it for the
+whole project. **`scratchpad.md`** is the per-topic catch-all — notes, half-formed observations,
+anything that does not yet fit an entry file. The topic is the *folder*, **never part of the ID** (a
+claim keeps its ID if re-filed under a better topic).
 
 **There is no `Status:` field. The FILE is the status.** A status column *plus* status-named files is
 two sources of truth waiting to disagree. The sub-states are a **`Disposition:`** field that exists

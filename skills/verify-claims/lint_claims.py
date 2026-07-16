@@ -11,9 +11,53 @@ citing the ledger anywhere.
 
 import re
 import sys
+import json
 import subprocess
 from pathlib import Path
 from collections import defaultdict
+
+
+def find_repo_root(start):
+    """Walk up from a claims-data (or claims-data/<topic>) dir to the repo root.
+
+    The repo root is the first ancestor holding a `.git` or a `.claude`. This survives the
+    per-topic layout: `claims-data/<topic>/` resolves the same root as a flat `claims-data/`,
+    so config is found at the repo root, never at `claims-data/`.
+    Falls back to the given dir's parent if no marker is found (configless is not an error).
+    """
+    start = Path(start).resolve()
+    for d in (start, *start.parents):
+        if (d / ".git").exists() or (d / ".claude").is_dir():
+            return d
+    return start.parent
+
+
+def load_config(claims_root):
+    """Resolve the verify-claims config for a ledger dir.
+
+    Home is `.claude/ledger.json` (#19). For backward compatibility a repo still carrying the
+    old `claims` block in `.claude/orchestrate.json` is read as a fallback; `ledger.json` wins.
+    A missing or malformed config yields `{}` — it must never block the lint.
+    """
+    root = find_repo_root(claims_root)
+    cfg = {}
+    try:
+        orch = root / ".claude" / "orchestrate.json"
+        if orch.exists():
+            blk = json.loads(orch.read_text()).get("claims")
+            if isinstance(blk, dict):
+                cfg = dict(blk)
+    except Exception:
+        cfg = {}
+    try:
+        ledger = root / ".claude" / "ledger.json"
+        if ledger.exists():
+            data = json.loads(ledger.read_text())
+            if isinstance(data, dict):
+                cfg.update(data)
+    except Exception:
+        pass
+    return cfg
 
 # ---------------------------------------------------------------------------
 # ID grammar.
@@ -224,17 +268,11 @@ def main():
         return 2
     strict = "--strict" in flags
 
-    # claims.overloadedTerms from the repo's orchestrate.json, if there is one. Configless is fine.
-    overloaded = DEFAULT_OVERLOADED
-    try:
-        import json
-        cfg_path = root.parent / ".claude" / "orchestrate.json"
-        if cfg_path.exists():
-            blk = json.loads(cfg_path.read_text()).get("claims") or {}
-            if isinstance(blk.get("overloadedTerms"), list):
-                overloaded = blk["overloadedTerms"]
-    except Exception:
-        pass  # a malformed config must never block the lint
+    # overloadedTerms from `.claude/ledger.json` (falling back to a legacy orchestrate.json
+    # `claims` block). Configless is fine; a per-topic root resolves the repo-root config.
+    cfg = load_config(root)
+    overloaded = cfg["overloadedTerms"] if isinstance(cfg.get("overloadedTerms"), list) else DEFAULT_OVERLOADED
+    repo_root = find_repo_root(root)   # for git-SHA drift checks; survives a per-topic ledger dir
 
     errors, warns = [], []
     all_entries, by_id = [], defaultdict(list)
@@ -402,7 +440,7 @@ def main():
                               f"DECISION. An attestation cannot make an opinion into a fact."))
 
             for m in SHA_RE.finditer(e.body):
-                reach = git_sha_reachable(m.group(1), root.parent)
+                reach = git_sha_reachable(m.group(1), repo_root)
                 if reach is False:
                     e.flags.append("drifted")
                     warns.append(("WARN_DRIFTED", fname, e.lineno,
