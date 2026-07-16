@@ -60,16 +60,16 @@ def load_config(claims_root):
     return cfg
 
 # ---------------------------------------------------------------------------
-# ID grammar.
+# ID grammar. Types are C and Q only (CC removed, #20).
 #
-# Accepts BOTH orderings so the planned migration is a config change, not a rewrite:
-#   agent-first (current):  PCS-FIG-C-001   /  PCS-C-001 (solo)
-#   agent-last  (planned):  PCS-C-001-FIG
+# Accepts BOTH agent orderings so an existing ledger keeps linting through the migration:
+#   agent-last  (minted form):  PYC-C-001-FIG   /  PYC-C-001 (solo)
+#   agent-first (legacy):       PYC-FIG-C-001
 # ---------------------------------------------------------------------------
 ID_RE = re.compile(
     r"^(?P<prefix>[A-Z]{2,5})-"
     r"(?:(?P<agent_first>[A-Z]{2,12})-)?"
-    r"(?P<type>C|Q|CC)-"
+    r"(?P<type>C|Q)-"
     r"(?P<num>\d{1,4})"
     r"(?:-(?P<agent_last>[A-Z]{2,12}))?$"
 )
@@ -91,7 +91,8 @@ ALLOWED = {
     "open": {"Q"},
     "answered": {"Q"},
 }
-# CC lives ONLY in the generated index -- its verdict is derived, so it has no stable home.
+# Types are C (claim) and Q (question) only. The composite CC type was removed (#20): a
+# compound claim is written as one claim; genuinely-oversized ones use `Split-from:` lineage.
 
 DISPOSITIONS = {"unverified", "INFERENCE", "REPORTED", "re-verify"}
 SHADOW_FIELDS = {"assignee", "owner", "due", "due-date", "work-status", "estimate", "sprint"}
@@ -114,7 +115,7 @@ BEHAVIOR_RE = re.compile(
 DECISION_RE = re.compile(
     r"\b(decided|ruled|ruling|policy|convention|we will|the project|the team|agreed)\b", re.I)
 
-# A statement carrying an explicit as-of anchor has already satisfied criterion 5. Words like
+# A statement carrying an explicit as-of anchor has already satisfied criterion 4. Words like
 # "latest" / "current" are then descriptive, not time-relative, so the screen must not fire.
 AS_OF_RE = re.compile(r"\b(as of\s+\d{4}-\d{2}-\d{2}|at\s+[0-9a-f]{7,40}\b|@[0-9a-f]{7,40}\b)", re.I)
 
@@ -125,7 +126,7 @@ TEXT_CLAIM_RE = re.compile(
     r"\b(contains?|declares?|defines?|documents?|states?|says?|the docstring|the comment|"
     r"the source|is written|spells?)\b", re.I)
 
-# Criterion 6 (Situated). These words name different things in different systems on one machine --
+# Criterion 5 (Situated). These words name different things in different systems on one machine --
 # pmtools' `claim` stakes a ticket; ours asserts a fact. A headline using one BARE is ambiguous the
 # moment it is read outside the session that wrote it. Override via claims.overloadedTerms.
 DEFAULT_OVERLOADED = ["claim", "close", "status", "release", "velocity", "error", "ice",
@@ -305,10 +306,7 @@ def main():
 
     for e in all_entries:
         f = e.file_key
-        if e.type == "CC":
-            errors.append(("WRONG_FILE", ENTRY_FILES[f], e.lineno,
-                           f"{e.id}: a CC (composite) has a DERIVED verdict and may live only in INDEX.md"))
-        elif e.type not in ALLOWED[f]:
+        if e.type not in ALLOWED[f]:
             errors.append(("WRONG_FILE", ENTRY_FILES[f], e.lineno,
                            f"{e.id}: type {e.type} may not live in {ENTRY_FILES[f]}"))
 
@@ -318,7 +316,7 @@ def main():
             v = e.field(fld)
             if not v:
                 continue
-            for ref in re.findall(r"\b[A-Z]{2,5}(?:-[A-Z]{2,12})?-(?:C|Q|CC)-\d{1,4}(?:-[A-Z]{2,12})?\b", v):
+            for ref in re.findall(r"\b[A-Z]{2,5}(?:-[A-Z]{2,12})?-(?:C|Q)-\d{1,4}(?:-[A-Z]{2,12})?\b", v):
                 if ref not in known and ref.split("-")[0] == e.prefix:
                     errors.append(("DANGLING_REF", ENTRY_FILES[e.file_key], e.lineno,
                                    f"{e.id}: {fld} points at {ref}, which does not exist"))
@@ -337,7 +335,7 @@ def main():
             errors.append(("SHADOW_TRACKER", fname, e.lineno,
                            f"{e.id}: Priority is allowed on a question, never on a claim"))
 
-        # -- criterion 7 (Relevant). A claim that informs nothing is trivia, however well cited.
+        # -- criterion 6 (Relevant). A claim that informs nothing is trivia, however well cited.
         #    Questions and rejected claims are exempt: a question exists precisely to find its bearing,
         #    and a bad claim never got in.
         if e.type == "C" and e.file_key in ("unverified", "verified"):
@@ -346,12 +344,12 @@ def main():
                 errors.append(("NO_BEARING", fname, e.lineno,
                                f"{e.id}: empty 'Bears-on' — name the fix / bug / feature / decision / "
                                f"concern this informs, or it is trivia. Drop it, or file it as a question."))
-            elif re.fullmatch(r"[A-Z]{2,5}(?:-[A-Z]{2,12})?-(?:C|Q|CC)-\d{1,4}(?:-[A-Z]{2,12})?", bears.strip()):
+            elif re.fullmatch(r"[A-Z]{2,5}(?:-[A-Z]{2,12})?-(?:C|Q)-\d{1,4}(?:-[A-Z]{2,12})?", bears.strip()):
                 warns.append(("WARN_BEARING_CHAIN", fname, e.lineno,
                               f"{e.id}: 'Bears-on' points only at another ledger entry ({bears.strip()}). "
                               f"Chase it up — the chain must end at a fix, bug, feature, decision, or concern."))
 
-        # -- criterion 6 (Situated). The headline must say WHOSE thing this is.
+        # -- criterion 5 (Situated). The headline must say WHOSE thing this is.
         if e.type == "C" and e.file_key in ("unverified", "verified"):
             bare = unsituated_terms(e.statement, overloaded)
             if bare:
@@ -451,7 +449,7 @@ def main():
         anchored = bool(AS_OF_RE.search(e.statement))
         for pat, why in SCREEN_PATTERNS:
             if anchored and "time-relative" in why:
-                continue  # an explicit as-of already satisfies criterion 5
+                continue  # an explicit as-of already satisfies criterion 4
             if re.search(pat, e.statement, re.I):
                 warns.append(("WARN_SCREEN", fname, e.lineno, f"{e.id}: {why} — “{e.statement[:60]}”"))
 

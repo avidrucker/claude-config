@@ -43,7 +43,7 @@ as a legacy fallback; `ledger.json` wins where both exist.
   "agentScoped": null,          // null => derive from mode == "fleet"
   "evidenceDir": "claims-data/evidence",
   // Words that mean different things in different systems here. A headline using one
-  // BARE (unqualified) trips criterion 6. Defaults cover the pmtools vocabulary.
+  // BARE (unqualified) trips criterion 5. Defaults cover the pmtools vocabulary.
   "overloadedTerms": ["claim", "close", "status", "release", "velocity", "error", "ice", "preflight"]
 }
 ```
@@ -54,9 +54,9 @@ as a legacy fallback; `ledger.json` wins where both exist.
 
 **Step 0 every time:** confirm `claims-data/` is git-excluded. If not, add it and say so.
 
-## The admission rubric — a binary 7/7 screen
+## The admission rubric — a binary 6/6 screen
 
-Seven criteria. **All seven, or it does not enter the ledger.** The last three are the ones people
+Six criteria. **All six, or it does not enter the ledger.** The last three are the ones people
 skip, and they map to **when · where · why**.
 
 | # | Criterion | The test — apply literally | On fail |
@@ -64,15 +64,19 @@ skip, and they map to **when · where · why**.
 | 1 | **Falsifiable** | *Write the sentence describing the observation that would make this FALSE.* If you can't write it, it isn't a claim. | Convert to a **question** (`Q`), or to a decision (→ an issue). |
 | 2 | **Objective** | Two competent people with the same evidence must reach the same verdict. Scan for: value adjectives (*clean, mature, robust, fast, simple*), bare comparatives (*simpler than*), hedges (*probably, seems*). | Replace with a **metric + threshold**. Unsalvageable → `bad-claims.md`. |
 | 3 | **Unambiguous** | Every noun resolves to exactly one referent. Scan for vague scope verbs: *supports, handles, works with, integrates*. | Name the exact function / file / table / command. |
-| 4 | **Atomic** | Exactly one truth value. Scan for ` and `, ` ; `, ` plus `, and any list. | **Split into fresh sibling IDs**, each carrying `Split-from:`. |
-| 5 | **Anchored — WHEN** | The statement names its as-of: a commit SHA, a date, a data-pin — or is a standing fact about an external technology. Scan for *latest, current, now, recently, `~`, about, roughly*. | Add the anchor. Convert an approximate quantity to a falsifiable **bound** (`>= N`). |
-| 6 | **Situated — WHERE / WHICH** | **The headline alone names whose thing this is.** A reader who sees only the one-line statement must know which system, repo, or component it is about — without opening the body. | Spend 1–4 words on the owner. See below. |
-| 7 | **Relevant — SO WHAT** | The entry carries a **`Bears-on:`** naming the concrete fix, bug, feature, decision, or concern this claim would inform. | Can't name one? It's **trivia**. Drop it, or file it as a question. |
+| 4 | **Anchored — WHEN** | The statement names its as-of: a commit SHA, a date, a data-pin — or is a standing fact about an external technology. Scan for *latest, current, now, recently, `~`, about, roughly*. | Add the anchor. Convert an approximate quantity to a falsifiable **bound** (`>= N`). |
+| 5 | **Situated — WHERE / WHICH** | **The headline alone names whose thing this is.** A reader who sees only the one-line statement must know which system, repo, or component it is about — without opening the body. | Spend 1–4 words on the owner. See below. |
+| 6 | **Relevant — SO WHAT** | The entry carries a **`Bears-on:`** naming the concrete fix, bug, feature, decision, or concern this claim would inform. | Can't name one? It's **trivia**. Drop it, or file it as a question. |
 
-**Procedure:** apply all seven → **one** rewrite attempt → re-apply. Still failing? Mint the ID anyway
+**Compound claims are allowed — there is no atomicity gate.** A claim may carry more than one truth
+condition; verify **one evidence item per conjunct** (see the kind-matching gate). A *genuinely*
+oversized claim may still be split into fresh sibling IDs with `Split-from:` lineage — case-by-case,
+never forced.
+
+**Procedure:** apply all six → **one** rewrite attempt → re-apply. Still failing? Mint the ID anyway
 and file it to `bad-claims.md` with the failed criteria named. Terminal.
 
-### 6 — Situated: the headline must carry its own context
+### 5 — Situated: the headline must carry its own context
 
 A statement is read on its own, in an index, months later, by someone who does not have your session
 in their head. **The most important noun in the headline must be qualified.** Spend the four words.
@@ -90,10 +94,10 @@ assertion), `close`, `status`, `release`, `error`, `velocity`, `ice`, `preflight
 per project via `claims.overloadedTerms`. If your headline uses one bare, situate it.
 
 Same rule for a **fact you're citing**: "the docs say X" must say *which* docs, at *which* commit.
-Criterion 5 gives you the *when*; criterion 6 gives you the *which*. A citation missing either one
+Criterion 4 gives you the *when*; criterion 5 gives you the *which*. A citation missing either one
 sends the next reader hunting.
 
-### 7 — Relevant: name what it bears on, or it's trivia
+### 6 — Relevant: name what it bears on, or it's trivia
 
 Every claim declares the work it would inform:
 
@@ -111,16 +115,33 @@ say what a claim would change, you have found a fact, not a finding.
 **A `Bears-on` pointing only at another claim is a smell** — chase it up: what does *that* one bear
 on? The chain must terminate in a fix, a bug, a feature, a decision, or a named concern.
 
-**Why binary and not a score:** the criteria are not commensurable. A claim that is 4/5 because it
-isn't atomic is not "80% good" — its truth value *does not exist*. Averaging non-tradeable criteria
-is meaningless, and a score invites a squishy "≥7/10 → verified" rule, which is the exact judgment
-call the ledger exists to eliminate. (You may record the raw 0–5 as **telemetry** — "how often am I
-drafting 3/5 claims?" — but never as a gate.)
+**Why binary and not a score:** the criteria are not commensurable. A claim that passes every
+criterion but one — say it isn't anchored — is not "almost good" — its truth value *does not exist*.
+Averaging non-tradeable criteria is meaningless, and a score invites a squishy "high enough →
+verified" rule, which is the exact judgment call the ledger exists to eliminate. (You may record the
+raw pass-count as **telemetry** — "how often am I drafting near-miss claims?" — but never as a gate.)
 
 **`bad` ≠ `FALSE`. Say this out loud.**
 - `bad-claims.md` = the claim was never *askable* (an admission-hygiene failure).
 - `verified-claims.md` with `Verdict: FALSE` = we asked, and the answer was no (a *truth* failure).
 - **A refuted claim is a VERIFIED claim.** It does not go to bad-claims.
+
+## Approval: two gates, no exceptions
+
+The ledger is human-gated at both transitions. This is deliberate: it stops an agent from silently
+inflating the ledger with unreviewed claims, or self-certifying a claim as proven.
+
+1. **Admission gate.** **Every claim requires explicit approval before it is filed** into
+   `unverified-claims.md` — no exceptions. An un-approved draft stays a draft (scratchpad, or the
+   message), not a ledger entry.
+2. **No direct-to-verified.** A claim may **never** be written straight into `verified-claims.md`. It
+   enters `unverified-claims.md` first, always.
+3. **Graduation gate.** Moving a claim `unverified → verified` requires a **second, explicit
+   approval** — on top of the evidence gate below. The same shape governs questions:
+   `open → answered` needs explicit approval.
+
+Approval is a human act. The evidence gate (an E1 item, a valid pin, an `Entails.` line, verifier ≠
+asserter) is *necessary but not sufficient*; the graduation approval is the final, separate step.
 
 ## Evidence: kinds, pins, tiers
 
@@ -189,7 +210,7 @@ reproducible; the **data** is not. "I ran this and got 1493" is not re-checkable
 
 **The insight: every data claim is a historical claim.**
 
-- *"The velocity table has 1493 rows"* — **fails admission** (criterion 5, unanchored).
+- *"The velocity table has 1493 rows"* — **fails admission** (criterion 4, unanchored).
 - *"As of 2026-07-13, the velocity table held 1493 rows with `id <= 1520`"* — **admissible, and
   permanently true.**
 
@@ -246,16 +267,14 @@ is intact. So:
   collision-breaker**, present on every ID in a fleet ledger.
 - The linter still accepts the **legacy agent-first** form (`PYC-FIG-C-001`) so existing ledgers keep
   linting during migration — but **mint the agent-last form**.
-- `TYPE` ∈ `C` (claim) · `Q` (question) · `CC` (composite).
+- `TYPE` ∈ `C` (claim) · `Q` (question). *(The composite `CC` type was removed — compound claims
+  are written as one claim; oversized ones use `Split-from:` lineage.)*
 - `NNN` is monotonic **within its own (prefix, agent, type) namespace**.
 - **Race-free by construction:** each agent increments only its own namespace and is its only writer.
   No counter file. No lock. This is the entire point of agent-scoping.
 - **Mint once.** An ID is assigned at admission *attempt* and never rewritten — not on failure, not
   on split, not on refutation, not on demotion.
 - **Splits get fresh IDs**, not letter suffixes (`C-005a/b`), with `Split-from:` for lineage.
-- **`CC` never lives in a lifecycle file.** Its verdict is *derived*, so it has no stable home. It
-  appears only in the generated `INDEX.md`. Derived: `TRUE` iff every child is verified-TRUE; `FALSE`
-  if any child is verified-FALSE; else `PENDING`.
 
 ## The files
 
@@ -299,7 +318,7 @@ only inside `unverified-claims.md`:
 
 **`unverified-claims.md`**
 ```markdown
-## <ID> — <one-line statement: objective · atomic · anchored · SITUATED (whose thing is this?)>
+## <ID> — <one-line statement: objective · anchored · SITUATED (whose thing is this?)>
 **Disposition.** unverified | INFERENCE | REPORTED | re-verify
 **Bears-on.** <the fix / bug / feature / decision / concern this would inform — REQUIRED>
 **Asserted.** <YYYY-MM-DD> by <AGENT|human>
@@ -362,13 +381,15 @@ it is the corpus for learning which claim-shapes to reject on sight.
 ## Lifecycle
 
 1. **Capture.** Write the raw assertion. No ID yet.
-2. **Screen.** Apply the 5-criterion rubric; one rewrite attempt. Pass → mint the ID. Fail → mint the
+2. **Screen.** Apply the admission rubric; one rewrite attempt. Pass → mint the ID. Fail → mint the
    ID anyway, file to `bad-claims.md`. "I can't say how I'd verify this" → it's a **question**.
-3. **Admit.** Append to `unverified-claims.md` with `Falsified-by` and `How to verify` filled in.
+3. **Admit — GATE 1.** A claim enters `unverified-claims.md` **only after explicit approval** (no
+   exceptions). On approval, append it with `Falsified-by` and `How to verify` filled in. **Nothing
+   is ever written straight to `verified-claims.md`.**
 4. **Gather.** Execute the `How to verify`. **Record each evidence item with its pin at the moment you
    run it.**
-5. **Promote.** Gate met → **MOVE** (cut, not copy) to `verified-claims.md`; add `Verdict`, `Entails`,
-   `Verified by/date`. Lint.
+5. **Promote — GATE 2.** Gate met *and* graduation **explicitly approved** → **MOVE** (cut, not copy)
+   to `verified-claims.md`; add `Verdict`, `Entails`, `Verified by/date`. Lint.
 6. **Refute.** Same move, `Verdict: FALSE`.
 7. **Demote.** Evidence invalidated → move back with `Disposition: re-verify` + a `Demoted:` note. The
    ID never changes.
@@ -387,8 +408,7 @@ Cross-file checks are the load-bearing ones — *"this ID lives in two files"* i
 eye**, and shipping the four-file model without the script would be shipping its failure mode:
 
 `DUPLICATE_FILE` (an ID in two of the five entry files) · `DUP_NUMBER` · `WRONG_FILE` (C only in
-unverified/verified/bad; Q only in open/answered; **CC only in INDEX**) · `DANGLING_REF` ·
-`STALE_INDEX`.
+unverified/verified/bad; Q only in open/answered) · `DANGLING_REF` · `STALE_INDEX`.
 
 Per-entry: `UNGROUNDED_VERIFIED` (no E1, no `Entails`, no verdict) · `MISSING_PIN` (kind-specific) ·
 `EMPTY_RESTS_ON` · `SHADOW_TRACKER` (no `Assignee`/`Owner`/`Due`/`Work-status` — `Priority` is allowed

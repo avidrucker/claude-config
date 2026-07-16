@@ -86,6 +86,18 @@ def test_load_config_configless_is_empty_not_error():
         assert isinstance(cfg, dict) and not cfg.get("overloadedTerms"), "no config → empty, never an error"
 
 
+def test_cc_type_is_rejected():
+    # #20: the composite CC type is removed. A CC id must no longer parse.
+    assert L.ID_RE.match("PYC-CC-001") is None, "CC composite type must be rejected"
+    assert L.ID_RE.match("PYC-CC-001-FIG") is None, "agent-suffixed CC must be rejected too"
+
+
+def test_c_and_q_types_still_parse():
+    assert L.ID_RE.match("PYC-C-001-FIG"), "agent-suffix claim must parse"
+    assert L.ID_RE.match("PYC-Q-003"), "solo question must parse"
+    assert L.ID_RE.match("PYC-FIG-C-001"), "legacy agent-first must still parse during migration"
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
