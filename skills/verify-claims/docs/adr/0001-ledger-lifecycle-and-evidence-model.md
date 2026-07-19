@@ -1,7 +1,7 @@
 # 0001 — Ledger lifecycle & evidence model for verify-claims
 
 - **Status:** accepted (2026-07-19)
-- **Decided in:** #23 (grill-with-docs + guide-human-decision session) · **Implemented by:** #25 · **Glossary:** [`../../CONTEXT.md`](../../CONTEXT.md)
+- **Decided in:** #23 (grill-with-docs + guide-human-decision session); evidence model refined during the #25 implementation grill (2026-07-19) · **Implemented by:** #25 · **Glossary:** [`../../CONTEXT.md`](../../CONTEXT.md)
 
 ## Context
 
@@ -20,15 +20,18 @@ never created).
 `claims-data/<topic>/` Ledgers, where the root holds *general* claims and each Topic holds *specific*
 ones. The filing location of each new Claim is the **user's** decision (Claude may suggest).
 
-**Two human gates.** A Claim moves DRAFT → UNVERIFIED via **Gate 1 (human approval)** and → VERIFIED
-via **Gate 2 (human judgment)**. Pinned evidence is *necessary but never sufficient* — a human
-ratifies. Because Claude drafts and a human always judges, verifier ≠ asserter holds automatically.
+**Two human-approved transitions.** A Claim moves DRAFT → UNVERIFIED at **admission** (human
+approval; the 11-criterion rubric applies) and UNVERIFIED → VERIFIED at **verification** (human
+judgment). Pinned evidence is *necessary but never sufficient* — a human ratifies. Because Claude
+drafts and a human always judges, verifier ≠ asserter holds automatically.
 
-**Lifecycle & files.** `draft-claims.md` (Claude adds freely) → `unverified-claims.md` (carrying a
-`TREATED-AS-VERIFIED` disposition: pinned evidence + a provisional TRUE/FALSE verdict) →
-`verified-claims.md` (TRUE/FALSE). CANCELLED → `bad-claims.md` from any stage. Questions:
-`open-questions.md` → `answered-questions.md` or `cancelled-questions.md`. Plus `scratchpad.md`, a
-generated `INDEX.md`, and a shared `rubric.md` at the `claims-data/` root.
+**Lifecycle & files.** `draft-claims.md` (Claude adds freely, under draft-local placeholder IDs like
+`d1`) → `unverified-claims.md` (real ID minted at admission; carries a `TREATED-AS-VERIFIED`
+disposition: pinned evidence + a provisional TRUE/FALSE verdict) → `verified-claims.md` (TRUE/FALSE).
+CANCELLED → `bad-claims.md` from any stage once an ID exists. Questions: `open-questions.md` →
+`answered-questions.md` or `cancelled-questions.md`. Plus `scratchpad.md`, and — only when the ledger
+carries topics or other custom files — a generated `INDEX.md`. The admission rubric is **not**
+per-project: it lives in the skill itself (there is no `claims-data/rubric.md`).
 
 **Evidence as code-tree tests.** There is **no `evidence/` directory**. Evidence is always a named
 reference pinned by **SHA + date, without line numbers**. A claim about source *text* points at a
@@ -36,7 +39,10 @@ file/function/heading; a *behavior* claim points at a **red-green, non-vacuous C
 claim points at a pinned query/test. Claim tests live in the code tree at `testDir` (`null` =
 colocate with the project's own tests, or e.g. `scratch/`) — the user's choice. Every Claim test's
 docstring restates the Claim in full and carries its ID; the ledger is the single source of truth and
-docstring↔ledger headline parity is lint-enforced.
+docstring↔ledger headline parity is lint-enforced. Evidence carries **no `E1/E2/E3` tiers** (dropped
+as low-signal); its kinds are `reference` (text), `test` (behavior), and `query` (data), plus a
+non-reproducible **`statement`** (WHO said/saw WHAT, WHEN) that is source-weighted signal only and
+never verifies a factual claim on its own.
 
 ## Considered options (and why rejected)
 
@@ -51,6 +57,10 @@ docstring↔ledger headline parity is lint-enforced.
 - **Docstring as source of truth** (ledger generated from tests). Rejected: the ledger is the
   lifecycle home; a Claim exists before any test does, and drafts/questions have no test. Ledger is
   source; the docstring mirrors it under a parity lint.
+- **`E1/E2/E3` evidence tiers.** A three-level re-checkability grade that powered a *mechanical*
+  promotion gate. Once promotion is human judgment, the tiers stopped gating anything, and their
+  "corroborating / not-real" middle was too fuzzy to be useful. Dropped; kind-matching and SHA+date
+  pinning carry the reproducibility discipline instead.
 
 ## Consequences
 
