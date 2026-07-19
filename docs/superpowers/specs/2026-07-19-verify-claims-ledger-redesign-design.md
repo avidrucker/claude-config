@@ -63,9 +63,10 @@ files. A plain root-only standard Ledger has none.
 - **CANCELLED → `bad-claims.md`** from any stage **once a real ID exists**. An abandoned **pre-ID
   draft** is a silent discard (it never entered the Ledger proper).
 
-**Dispositions** inside `unverified-claims.md`: `unverified` (default), `TREATED-AS-VERIFIED`,
-`re-verify` (a demoted claim whose evidence was invalidated). *(Proposal — see Open items: drop the
-legacy `INFERENCE` and `REPORTED` dispositions.)*
+**Dispositions** inside `unverified-claims.md`: **only** `unverified` (default) and
+`TREATED-AS-VERIFIED`. A claim demoted from `verified-claims.md` (its evidence invalidated) moves back
+as plain `unverified` with an inline `Demoted:` note — there is no dedicated disposition for it.
+(`INFERENCE`, `REPORTED`, and `re-verify` are dropped.)
 
 ## 5. Evidence
 
@@ -122,8 +123,6 @@ Aware of the new file-set and the `topics` layout; no `evidence/` dir; no `rubri
 - Migrating the four repos' on-disk ledgers/configs → **#27**.
 - ID-format configurability + `--fix-ids` → **#17** (shares `lint_claims.py`).
 
-## Open items (for spec review)
+## Status
 
-1. **Dispositions.** Proposal: keep only `{unverified, TREATED-AS-VERIFIED, re-verify}` and drop the
-   legacy `INFERENCE` and `REPORTED` dispositions — `REPORTED` ("not reproducible by you") overlaps
-   the new `statement` signal, and `INFERENCE` is rarely used. Confirm, or keep them?
+Approved 2026-07-19 — no open items.
