@@ -144,6 +144,29 @@ def test_defunct_evidencedir_key_warns_not_fails():
         assert rc == 0, "a defunct key must WARN, never fail"
 
 
+def test_draft_placeholder_ids_parse_and_dedupe():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, draft_claims=(
+            "## d1 — pmtools' `close` returns 0 on an empty store\nbody\n"
+            "## d1 — a duplicate placeholder\nbody\n"))
+        rc, out = _lint(claims)
+        assert "DUP_DRAFT_ID" in out and rc == 1, out
+
+
+def test_real_id_forbidden_in_drafts():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, draft_claims="## PYC-C-001 — real id in drafts\nbody\n")
+        rc, out = _lint(claims)
+        assert "DRAFT_ID_ONLY" in out and rc == 1, out
+
+
+def test_placeholder_id_forbidden_outside_drafts():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims="## d1 — placeholder in unverified\nbody\n")
+        rc, out = _lint(claims)
+        assert "REAL_ID_REQUIRED" in out and rc == 1, out
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

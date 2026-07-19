@@ -78,23 +78,30 @@ ID_RE = re.compile(
     r"(?P<num>\d{1,4})"
     r"(?:-(?P<agent_last>[A-Z]{2,12}))?$"
 )
+# Draft placeholders: `d1`, `d2` … unique within draft-claims.md only. The real
+# <PREFIX>-<TYPE>-<NNN>[-<AGENT>] id is minted when a draft is promoted (admission → bad).
+DRAFT_ID_RE = re.compile(r"^d\d{1,4}$")
 SHA_RE = re.compile(r"@([0-9a-f]{7,40})\b")
 SHA256_RE = re.compile(r"sha256:\s*([0-9a-f]{16,64})", re.I)
 
 ENTRY_FILES = {
+    "draft": "draft-claims.md",
     "unverified": "unverified-claims.md",
     "verified": "verified-claims.md",
     "open": "open-questions.md",
     "answered": "answered-questions.md",
     "bad": "bad-claims.md",
+    "cancelled": "cancelled-questions.md",
 }
 # Which types may live in which file.
 ALLOWED = {
+    "draft": {"C"},
     "unverified": {"C"},
     "verified": {"C"},
     "bad": {"C"},
     "open": {"Q"},
     "answered": {"Q"},
+    "cancelled": {"Q"},
 }
 # Types are C (claim) and Q (question) only. The composite CC type was removed (#20): a
 # compound claim is written as one claim; genuinely-oversized ones use `Split-from:` lineage.
@@ -170,6 +177,7 @@ class Entry:
         self.prefix = m.group("prefix") if m else None
         self.num = int(m.group("num")) if m else None
         self.agent = (m.group("agent_first") or m.group("agent_last")) if m else None
+        self.is_draft = bool(DRAFT_ID_RE.match(eid))
 
     def field(self, name):
         """Value of a **Name.** field, or None."""
@@ -205,7 +213,7 @@ def parse(path, file_key):
             if cur:
                 entries.append(cur)
             eid, statement = m.group(1).strip(), m.group(2).strip()
-            if not ID_RE.match(eid):
+            if not (ID_RE.match(eid) or DRAFT_ID_RE.match(eid)):
                 problems.append(("BAD_ID", path.name, i, f"'{eid}' does not match the ID grammar"))
                 cur = None
                 continue
@@ -292,7 +300,28 @@ def main():
             errors.append((code, f, ln, msg))
         for e in entries:
             all_entries.append(e)
-            by_id[e.id].append(e)
+            if not e.is_draft:
+                by_id[e.id].append(e)
+
+    # ---- draft placeholders: unique within drafts; real ids only on promotion --
+    draft_ids = defaultdict(list)
+    for e in all_entries:
+        if e.file_key == "draft" and e.is_draft:
+            draft_ids[e.id].append(e)
+        elif e.file_key == "draft" and not e.is_draft:
+            errors.append(("DRAFT_ID_ONLY", "draft-claims.md", e.lineno,
+                           f"{e.id}: draft-claims.md holds placeholder ids (d1, d2…); "
+                           f"the real id is minted on promotion"))
+        elif e.is_draft:
+            errors.append(("REAL_ID_REQUIRED", ENTRY_FILES[e.file_key], e.lineno,
+                           f"{e.id}: placeholder ids live only in draft-claims.md"))
+    for did, occ in draft_ids.items():
+        if len(occ) > 1:
+            errors.append(("DUP_DRAFT_ID", "draft-claims.md", occ[0].lineno,
+                           f"{did}: placeholder id used {len(occ)}× — must be unique within drafts"))
+
+    # Real (non-draft) entries feed every id/type/gate check below.
+    real = [e for e in all_entries if not e.is_draft]
 
     # ---- cross-file integrity -------------------------------------------------
     for eid, occurrences in by_id.items():
@@ -302,7 +331,7 @@ def main():
                            f"{eid} appears in {len(occurrences)} files ({where}). MOVE, never COPY."))
 
     seen_num = defaultdict(list)
-    for e in all_entries:
+    for e in real:
         seen_num[(e.prefix, e.agent, e.type)].append(e)
     for ns, es in seen_num.items():
         nums = defaultdict(list)
@@ -312,14 +341,14 @@ def main():
             if len(dupes) > 1 and len({d.id for d in dupes}) > 1:
                 errors.append(("DUP_NUMBER", "-", 0, f"namespace {ns} has number {n} twice"))
 
-    for e in all_entries:
+    for e in real:
         f = e.file_key
         if e.type not in ALLOWED[f]:
             errors.append(("WRONG_FILE", ENTRY_FILES[f], e.lineno,
                            f"{e.id}: type {e.type} may not live in {ENTRY_FILES[f]}"))
 
     known = set(by_id)
-    for e in all_entries:
+    for e in real:
         for fld in ("Rests-on", "Gates", "Blocked-by", "Split-from", "Supersedes", "Unblocks"):
             v = e.field(fld)
             if not v:
@@ -330,7 +359,7 @@ def main():
                                    f"{e.id}: {fld} points at {ref}, which does not exist"))
 
     # ---- per-entry gates ------------------------------------------------------
-    for e in all_entries:
+    for e in real:
         fname = ENTRY_FILES[e.file_key]
         e.flags = []
 
@@ -468,7 +497,7 @@ def main():
     custom = has_topic_dirs or bool({p.stem for p in present} - std)
     idx_path = root / "INDEX.md"
     if custom:
-        fresh = build_index(all_entries)
+        fresh = build_index(real)
         if "--write-index" in flags:
             idx_path.write_text(fresh, encoding="utf-8")
             print(f"wrote {idx_path}")
