@@ -8,10 +8,31 @@ found by walking up — so a per-topic ledger at `claims-data/<topic>/` still re
 config that lives at the repo root, not at `claims-data/`.
 """
 import json
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import lint_claims as L
+
+LINT = Path(__file__).with_name("lint_claims.py")
+
+
+def _lint(claims_dir):
+    """Run lint_claims.py on a dir; return (returncode, combined_output)."""
+    p = subprocess.run([sys.executable, str(LINT), str(claims_dir)],
+                       capture_output=True, text=True)
+    return p.returncode, p.stdout + p.stderr
+
+
+def _ledger(tmp, **files):
+    """Build a claims-data/ dir under a fake repo; files={name: text}, '_'→'-' in name."""
+    root = _repo(tmp)
+    claims = root / "claims-data"
+    claims.mkdir()
+    for name, text in files.items():
+        (claims / f"{name.replace('_', '-')}.md").write_text(text, encoding="utf-8")
+    return claims
 
 
 def _repo(tmp):
