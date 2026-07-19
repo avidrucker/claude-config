@@ -116,6 +116,8 @@ SCREEN_PATTERNS = [
     (r"\b(latest|current|newest|now|recently|today|these days)\b", "time-relative term -- needs an as-of"),
     (r"\b(simpler|faster|better|worse|cleaner|slower)\s+than\b", "comparative without a measured baseline"),
     (r"\b(probably|seems|appears to|tends to|might be|likely)\b", "hedge -- not objective"),
+    (r"\b(we should|should be|shouldn'?t|let'?s|need to|ought to|decided to|prefer|must be made)\b",
+     "decision/opinion language -- a decision is not a claim; move it to an issue or ADR"),
 ]
 # Verbs that describe RUNTIME BEHAVIOR. A claim using one of these needs a `test`;
 # a quote of the source is inference, not evidence. Matches inflections (no-op/no-ops/

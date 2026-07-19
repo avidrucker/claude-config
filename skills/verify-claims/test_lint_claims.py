@@ -227,6 +227,15 @@ def test_statement_only_on_factual_claim_warns_kind_mismatch():
         assert "WARN_KIND_MISMATCH" in out and "NO_EVIDENCE" in out, out
 
 
+def test_decision_language_in_claim_file_warns():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims=(
+            "## PYC-C-003 — we should refactor pmtools' `close`\n"
+            "**Bears-on.** pmtools#96\n**Falsified-by.** n/a\n"))
+        rc, out = _lint(claims)
+        assert "WARN_SCREEN" in out and "decision" in out.lower(), out
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
