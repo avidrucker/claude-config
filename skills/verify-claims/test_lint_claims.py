@@ -236,6 +236,36 @@ def test_decision_language_in_claim_file_warns():
         assert "WARN_SCREEN" in out and "decision" in out.lower(), out
 
 
+def test_parity_ok_when_docstring_carries_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = _repo(tmp)
+        (root / "scratch").mkdir()
+        (root / "scratch" / "t_close.py").write_text(
+            'def test_close_empty():\n'
+            '    """PYC-C-001 — pmtools\' close returns 0 on an empty store."""\n'
+            '    assert True\n')
+        (root / ".claude" / "ledger.json").write_text(json.dumps({"testDir": "scratch"}))
+        claims = root / "claims-data"; claims.mkdir()
+        (claims / "verified-claims.md").write_text(VERIFIED_TMPL.format(
+            ev="[test] `t_close.py::test_close_empty` red-on @aaaaaaa green-on @bbbbbbb"))
+        rc, out = _lint(claims)
+        assert "PARITY_MISMATCH" not in out, out
+
+
+def test_parity_mismatch_when_id_absent():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = _repo(tmp)
+        (root / "scratch").mkdir()
+        (root / "scratch" / "t_close.py").write_text(
+            'def test_close_empty():\n    """some unrelated docstring."""\n    assert True\n')
+        (root / ".claude" / "ledger.json").write_text(json.dumps({"testDir": "scratch"}))
+        claims = root / "claims-data"; claims.mkdir()
+        (claims / "verified-claims.md").write_text(VERIFIED_TMPL.format(
+            ev="[test] `t_close.py::test_close_empty` red-on @aaaaaaa green-on @bbbbbbb"))
+        rc, out = _lint(claims)
+        assert "PARITY_MISMATCH" in out and rc == 1, out
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
