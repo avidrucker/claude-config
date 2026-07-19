@@ -106,7 +106,7 @@ ALLOWED = {
 # Types are C (claim) and Q (question) only. The composite CC type was removed (#20): a
 # compound claim is written as one claim; genuinely-oversized ones use `Split-from:` lineage.
 
-DISPOSITIONS = {"unverified", "INFERENCE", "REPORTED", "re-verify"}
+DISPOSITIONS = {"unverified", "TREATED-AS-VERIFIED"}
 SHADOW_FIELDS = {"assignee", "owner", "due", "due-date", "work-status", "estimate", "sprint"}
 
 # Reject-patterns from the admission screen. Warnings only -- human judgment overrides.
@@ -401,13 +401,9 @@ def main():
                                f"FALSE, it is not a claim"))
             disp = e.field("Disposition")
             if disp and disp not in DISPOSITIONS:
-                errors.append(("BAD_DISPOSITION", fname, e.lineno, f"{e.id}: unknown disposition '{disp}'"))
-            if disp == "INFERENCE" and not e.field("Rests-on"):
-                errors.append(("EMPTY_RESTS_ON", fname, e.lineno,
-                               f"{e.id}: Disposition INFERENCE requires a non-empty 'Rests-on'"))
-            if disp == "re-verify" and not e.field("Demoted"):
-                errors.append(("EMPTY_RESTS_ON", fname, e.lineno,
-                               f"{e.id}: Disposition re-verify requires a 'Demoted' note"))
+                errors.append(("BAD_DISPOSITION", fname, e.lineno,
+                               f"{e.id}: unknown disposition '{disp}' "
+                               f"(only 'unverified' or 'TREATED-AS-VERIFIED')"))
 
         if e.file_key == "verified":
             verdict = e.field("Verdict")

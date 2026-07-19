@@ -167,6 +167,26 @@ def test_placeholder_id_forbidden_outside_drafts():
         assert "REAL_ID_REQUIRED" in out and rc == 1, out
 
 
+def test_treated_as_verified_is_valid_disposition():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims=(
+            "## PYC-C-001 — pmtools' `close` returns 0 on empty store\n"
+            "**Disposition.** TREATED-AS-VERIFIED\n**Bears-on.** pmtools#96\n"
+            "**Falsified-by.** close returns nonzero\n"))
+        rc, out = _lint(claims)
+        assert "BAD_DISPOSITION" not in out, out
+
+
+def test_inference_disposition_now_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims=(
+            "## PYC-C-002 — pmtools' `close` returns 0 on empty store\n"
+            "**Disposition.** INFERENCE\n**Bears-on.** pmtools#96\n"
+            "**Falsified-by.** x\n"))
+        rc, out = _lint(claims)
+        assert "BAD_DISPOSITION" in out and rc == 1, out
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
