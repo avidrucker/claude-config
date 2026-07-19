@@ -191,10 +191,10 @@ class Entry:
         return re.search(rf"^\*\*{re.escape(name)}\.?\*\*", self.body, re.M | re.I) is not None
 
     def evidence_items(self):
-        """Every '[E1·query]'-style evidence line, as (tier, kind, text)."""
+        """Every '[reference]/[test]/[query]/[statement]' evidence line, as (kind, text)."""
         out = []
-        for m in re.finditer(r"\[\s*(E[123])\s*[·.\-|]\s*(\w+)\s*\]\s*(.*)", self.body):
-            out.append((m.group(1), m.group(2).lower(), m.group(3)))
+        for m in re.finditer(r"\[\s*(reference|test|query|statement)\s*\]\s*(.*)", self.body, re.I):
+            out.append((m.group(1).lower(), m.group(2)))
         return out
 
 
@@ -408,67 +408,51 @@ def main():
         if e.file_key == "verified":
             verdict = e.field("Verdict")
             if verdict not in ("TRUE", "FALSE"):
-                errors.append(("UNGROUNDED_VERIFIED", fname, e.lineno,
+                errors.append(("MISSING_VERDICT", fname, e.lineno,
                                f"{e.id}: Verdict must be TRUE or FALSE (got {verdict!r})"))
             if not e.field("Entails"):
-                errors.append(("UNGROUNDED_VERIFIED", fname, e.lineno,
-                               f"{e.id}: empty 'Entails' — state in one sentence HOW the evidence "
-                               f"entails this claim"))
+                errors.append(("MISSING_ENTAILS", fname, e.lineno,
+                               f"{e.id}: empty 'Entails' — one sentence: HOW the evidence entails this claim"))
+
             items = e.evidence_items()
-            e1 = [i for i in items if i[0] == "E1"]
-            if not e1:
-                errors.append(("UNGROUNDED_VERIFIED", fname, e.lineno,
-                               f"{e.id}: no E1 (reproducible, pinned) evidence item"))
+            kinds = {k for k, _ in items}
+            reproducible = kinds & {"reference", "test", "query"}
+            if not reproducible:
+                errors.append(("NO_EVIDENCE", fname, e.lineno,
+                               f"{e.id}: no reproducible evidence (reference/test/query) — "
+                               f"a lone statement never verifies a factual claim"))
+
+            # Pins, per kind. SHA + date, no line numbers. A query pins with an as-of predicate.
+            for kind, text in items:
+                if kind == "reference" and not SHA_RE.search(text):
+                    errors.append(("MISSING_PIN", fname, e.lineno,
+                                   f"{e.id}: reference has no @<sha> pin (SHA + date, no line numbers)"))
+                if kind == "test" and not SHA_RE.search(text):
+                    errors.append(("MISSING_PIN", fname, e.lineno,
+                                   f"{e.id}: test has no red-on/green-on @<sha> pin"))
+                if kind == "query" and not ("repin:" in text and "expect" in text):
+                    errors.append(("MISSING_PIN", fname, e.lineno,
+                                   f"{e.id}: query needs an as-of 'repin:'+'expect' predicate"))
 
             asserted, verified = e.field("Asserted"), e.field("Verified")
             if asserted and verified:
                 a = re.sub(r"^\S+\s+by\s+", "", asserted, flags=re.I).strip().upper()
                 v = re.sub(r"^\S+\s+by\s+", "", verified, flags=re.I).strip().upper()
                 if a and a == v:
-                    warns.append(("WARN_SELF_VERIFIED", fname, e.lineno,
-                                  f"{e.id}: asserter == verifier ({a}) — not allowed for a "
-                                  f"load-bearing claim"))
+                    warns.append(("WARN_SAME_AUTHOR", fname, e.lineno,
+                                  f"{e.id}: asserter == verifier ({a}) — Claude drafts, a human verifies"))
 
-            # pins, per kind
-            for tier, kind, text in items:
-                if tier != "E1":
-                    continue
-                if kind == "quote" and not SHA_RE.search(text):
-                    errors.append(("MISSING_PIN", fname, e.lineno,
-                                   f"{e.id}: E1 quote has no @<sha> pin"))
-                if kind == "test" and not SHA_RE.search(text):
-                    errors.append(("MISSING_PIN", fname, e.lineno,
-                                   f"{e.id}: E1 test has no red-on/green-on @<sha> pin"))
-                if kind == "query":
-                    has_repin = "repin:" in text and "expect" in text
-                    has_frozen = SHA256_RE.search(text) or "evidence/" in text
-                    if not (has_repin or has_frozen):
-                        errors.append(("MISSING_PIN", fname, e.lineno,
-                                       f"{e.id}: E1 query needs either 'repin:'+'expect' or a frozen "
-                                       f"artifact + sha256 — an unpinned query is a memory of a number"))
-                    elif not has_repin and has_frozen:
-                        warns.append(("WARN_UNPINNED_QUERY", fname, e.lineno,
-                                      f"{e.id}: query pinned only by a frozen artifact; prefer an "
-                                      f"as-of 'repin' predicate that re-derives forever"))
-                if kind == "observation":
-                    warns.append(("WARN_UNPINNED_QUERY", fname, e.lineno,
-                                  f"{e.id}: an observation is E2 and cannot promote a claim"))
-
-            # Behavior must be EXECUTED, never merely READ. A `test` and a `query` both run the
-            # system and show its output; a `quote` only reads the source, which is inference.
-            kinds = {k for _, k, _ in items}
+            # Behavior must be EXECUTED, never merely READ; a factual claim needs a reproducible
+            # item — a statement alone is source-weighted signal, not verification.
             executed = kinds & {"test", "query"}
-            if (BEHAVIOR_RE.search(e.statement)
-                    and not executed
+            if (BEHAVIOR_RE.search(e.statement) and not executed
                     and not TEXT_CLAIM_RE.search(e.statement)):
                 warns.append(("WARN_KIND_MISMATCH", fname, e.lineno,
-                              f"{e.id}: statement describes BEHAVIOR but carries no EXECUTED evidence "
-                              f"(test or query) — only a quote. Reading the source and concluding what "
-                              f"it does is inference, not evidence."))
-            if kinds == {"attestation"} and not DECISION_RE.search(e.statement):
-                warns.append(("WARN_ATTESTATION_ABUSE", fname, e.lineno,
-                              f"{e.id}: verified only by attestation, but the statement is not about a "
-                              f"DECISION. An attestation cannot make an opinion into a fact."))
+                              f"{e.id}: behavior claim with no EXECUTED evidence (test or query) — "
+                              f"reading the source is inference, not evidence"))
+            if not reproducible and not DECISION_RE.search(e.statement):
+                warns.append(("WARN_KIND_MISMATCH", fname, e.lineno,
+                              f"{e.id}: a factual claim needs a reproducible item; a statement alone is signal"))
 
             for m in SHA_RE.finditer(e.body):
                 reach = git_sha_reachable(m.group(1), repo_root)

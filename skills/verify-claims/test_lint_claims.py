@@ -187,6 +187,46 @@ def test_inference_disposition_now_rejected():
         assert "BAD_DISPOSITION" in out and rc == 1, out
 
 
+VERIFIED_TMPL = (
+    "## PYC-C-001 — pmtools' `close` returns 0 on an empty store\n"
+    "**Verdict.** TRUE\n**Bears-on.** pmtools#96\n"
+    "**Asserted.** 2026-07-19 by KIWI\n**Verified.** 2026-07-19 by AVI\n"
+    "**Entails.** the test runs close on an empty store and asserts exit 0\n"
+    "**Evidence.**\n  1. {ev}\n")
+
+
+def test_verified_ok_with_reference():
+    with tempfile.TemporaryDirectory() as tmp:
+        ev = "[reference] `py/close.py:close` @a1b2c3d 2026-07-19"
+        claims = _ledger(tmp, verified_claims=VERIFIED_TMPL.format(ev=ev))
+        rc, out = _lint(claims)
+        assert rc == 0 and "MISSING" not in out and "NO_EVIDENCE" not in out, out
+
+
+def test_verified_no_evidence_errors():
+    with tempfile.TemporaryDirectory() as tmp:
+        body = VERIFIED_TMPL.format(ev="").replace("  1. \n", "")
+        claims = _ledger(tmp, verified_claims=body)
+        rc, out = _lint(claims)
+        assert "NO_EVIDENCE" in out and rc == 1, out
+
+
+def test_verified_reference_without_pin_errors():
+    with tempfile.TemporaryDirectory() as tmp:
+        ev = "[reference] `py/close.py:close`"      # no @sha + date
+        claims = _ledger(tmp, verified_claims=VERIFIED_TMPL.format(ev=ev))
+        rc, out = _lint(claims)
+        assert "MISSING_PIN" in out and rc == 1, out
+
+
+def test_statement_only_on_factual_claim_warns_kind_mismatch():
+    with tempfile.TemporaryDirectory() as tmp:
+        ev = "[statement] AVI on 2026-07-19: the store looked empty"
+        claims = _ledger(tmp, verified_claims=VERIFIED_TMPL.format(ev=ev))
+        rc, out = _lint(claims)
+        assert "WARN_KIND_MISMATCH" in out and "NO_EVIDENCE" in out, out
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
