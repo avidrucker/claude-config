@@ -5,92 +5,86 @@ deliverable. What graduates out of here is a committed findings doc or a GitHub 
 
 **The rule:** a number you did not pin is a number you have already lost.
 
-## The admission rubric — 7/7 or it does not enter
+**The boundary:** a claim is a validatable statement about **code, a library, or data**. A
+**decision** — a "should", a policy, a preference — has no truth value you can test, so it is **not a
+claim**. It belongs in an issue or an ADR, never in these files.
 
-| # | Criterion | The test |
-|---|---|---|
-| 1 | **Falsifiable** | Write the observation that would make it FALSE. Can't? It isn't a claim — it's a question. |
-| 2 | **Objective** | Two competent people with the same evidence reach the same verdict. No value adjectives, no hedges. |
-| 3 | **Unambiguous** | Every noun resolves to one referent. Name the exact file, function, table, command. |
-| 4 | **Atomic** | Exactly one truth value. An ` and ` usually means: split it. |
-| 5 | **Anchored — WHEN** | It names its as-of — a commit SHA, a date, a data-pin — or is a standing external fact. |
-| 6 | **Situated — WHICH** | The **headline alone** says whose thing this is. Spend the 1–4 words. |
-| 7 | **Relevant — SO WHAT** | A **`Bears-on:`** naming the fix / bug / feature / decision / concern it informs. |
+## Admission is single-sourced in the skill
 
-One rewrite attempt. Still failing → `bad-claims.md`, with the failed criteria named. Terminal.
+Every claim must pass the **11-criterion admission rubric**, which lives in the skill (`SKILL.md`) and
+is **not duplicated here** — one source, so the two can never drift. A claim that fails the rubric on
+admission is filed to `bad-claims.md` with the failed criteria named. A draft that never reaches
+admission is simply discarded.
 
-### 6 — Situated
+## Two human-approved transitions
 
-The index is where claims get read — months later, by someone without your session in their head.
+Nothing self-promotes. Both promotions are a human act:
 
-> ✗ "close completes without a velocity row when the store is off"
-> — *Whose* close? lccjs's `npm run close`? `gh issue close`? pmtools' `py/close.py`? Three
->   different things, three different owners, three different fixes.
->
-> ✓ "**pmtools'** `close` (`py/close.py`) completes without requiring a velocity row when
->    `storage.velocity.enabled` is false"
+- **Admission** (`draft → unverified`): a human approves a draft into `unverified-claims.md`; the
+  rubric applies and the real ID is minted here.
+- **Verification** (`unverified → verified`): a human judges the claim TRUE or FALSE. Pinned evidence
+  is **necessary but never sufficient** — the human ratifies. Because Claude drafts and a human
+  judges, verifier ≠ asserter holds automatically.
 
-Watch the **overloaded terms** — words meaning different things in different systems here:
-`claim` (pmtools = staking a ticket via a git ref; *here* = an epistemic assertion), `close`,
-`status`, `release`, `velocity`, `error`, `ice`, `preflight`.
-
-### 7 — Relevant
-
-> **Bears-on.** pmtools#96 — whether the close path should surface a disabled velocity store
-
-A declaration, not a judgment: name the work it would inform. But the discipline is real — **a
-ledger of true, pinned, immaculately-cited facts that change nothing is waste wearing a lab coat.**
-If you can't say what a claim would change, you have found a fact, not a finding. A `Bears-on` that
-points only at another ledger entry is a smell: chase the chain up until it lands on real work.
-
-**`bad` ≠ `FALSE`.** `bad` = never askable (hygiene). `FALSE` = we asked, and the answer was no.
-**A refuted claim is a VERIFIED claim.**
+**`bad` ≠ `FALSE`.** `bad-claims.md` = never askable, or cancelled (hygiene). `verified-claims.md`
+with `Verdict: FALSE` = we asked, and the answer was no. **A refuted claim is a VERIFIED claim.**
 
 ## Evidence: the kind must match the claim
 
-| Claim is about… | Minimum evidence |
-|---|---|
-| a source's **text** | a `quote` — verbatim sentence, pinned `@<sha>` |
-| our code's **behavior** | a **`test`** — quoting the source is *inference*, not evidence |
-| **data** | a **`query`** — the command, its verbatim output, and a pin |
-| a **universal/negative** ("nothing calls X") | a `query` — an exhaustive search with its output pasted. A quote can never establish a universal. |
-| a **decision** | an `attestation` — and *only* a decision. An attestation cannot make an opinion into a fact. |
+Evidence is a reference **pinned by SHA + date**, without line numbers. There are no re-checkability
+tiers and no frozen evidence store — just four kinds:
 
-**Promotion gate:** ≥1 pinned E1 item of the matching kind · a written `Entails.` line · and
-**verifier ≠ asserter** for anything load-bearing.
+| Claim is about… | Kind | The pin |
+|---|---|---|
+| a source's **text** | `reference` | a named file / function / heading `@<sha>` + date |
+| our code's **behavior** | `test` | a **red-green, non-vacuous Claim test** — `red-on:<sha>` + `green-on:<sha>` |
+| **data** (incl. a universal / negative) | `query` | a command + output + an as-of `repin:` + `expect` predicate |
+| WHO said/saw WHAT, WHEN | `statement` | who + when — **signal only** |
+
+**Behavior must be EXECUTED, never merely READ.** Reading the source and concluding what it does is
+inference — a behavior claim needs a `test` or a `query`. A **factual claim always needs at least one
+reproducible item**; a lone `statement` never verifies it (its weight depends on the WHO, and a
+decider's statement is authoritative only for a *decision* — i.e. for answering a question).
+
+**Verification requires** a `Verdict`, ≥1 reproducible kind-matched pinned item, a written `Entails.`
+line, and the human's judgment.
+
+## Claim tests carry the claim
+
+A `test` lives in the project's code tree (at `testDir`). Its **docstring restates the claim in full
+and carries the Claim ID**, so it reads standalone. The ledger is the single source of truth; the
+docstring mirrors it, and the parity is **lint-enforced**.
 
 ## Pinning a query — every data claim is a historical claim
 
-`select count(*) from velocity` → `1493` is not reproducible tomorrow. So don't claim the
-present tense. Claim the slice:
+`select count(*) from velocity` → `1493` is not reproducible tomorrow. Don't claim the present tense;
+claim the slice:
 
-> ✗ "The velocity table has 1493 rows"  — fails criterion 5
+> ✗ "The velocity table has 1493 rows"  — fails admission (unanchored)
 > ✓ "As of 2026-07-13, the velocity table held 1493 rows with `id <= 1520`"  — true forever
 
-```
-[E1·query] `<the discovery command>` → `<verbatim output>`
-           · repin: `<time-scoped rewrite that returns the same answer forever>` → expect `<value>`
-           · data-pin: sha256:<hash of the source>   (or file+mtime+size)
-```
-
-If rows can be **deleted**, `count(*)` ≠ `max(id)` — anchor on `id <= <max_id>` and expect the *count*.
+Record the discovery command, the as-of `repin` (the evidence), and its `expect`. If rows can be
+**deleted**, `count(*)` ≠ `max(id)` — anchor on `id <= <max_id>` and expect the *count*.
 
 ## Files
 
 | File | What |
 |---|---|
-| `unverified-claims.md` | admitted, not yet proven. Carries `Falsified-by` and `How to verify` — your work queue. |
-| `verified-claims.md` | proven, `Verdict: TRUE` or `FALSE`, with pinned evidence and an `Entails.` line |
-| `open-questions.md` | things we don't know. `Priority` here is *epistemic sequencing*, never work priority. |
+| `draft-claims.md` | proposed claims Claude adds freely, under placeholder ids (`d1`, `d2`…) |
+| `unverified-claims.md` | admitted, not yet verified. `Disposition: unverified` or `TREATED-AS-VERIFIED`; carries `Falsified-by` + `How to verify` — your work queue |
+| `verified-claims.md` | human-ratified, `Verdict: TRUE` or `FALSE`, with pinned evidence and an `Entails.` line |
+| `bad-claims.md` | failed admission, or cancelled. Terminal archive — read it to learn which shapes to reject on sight |
+| `open-questions.md` | things we don't know. `Priority` here is *epistemic sequencing*, never work priority |
 | `answered-questions.md` | answered, with `Unblocks` — go revisit every claim it unblocks |
-| `bad-claims.md` | failed admission. Terminal archive. Read it to learn which shapes to reject on sight. |
-| `INDEX.md` | **GENERATED.** Never hand-edit. If it's wrong, the entry files are wrong. |
-| `evidence/` | frozen raw outputs, `<ID>-e<N>.txt`, sha256'd |
+| `cancelled-questions.md` | withdrawn / won't-answer |
+| `scratchpad.md` | free-form notes that fit nowhere else |
+| `INDEX.md` | **GENERATED**, and only when this ledger has topics or other custom files. Never hand-edit |
 
-**There is no `Status:` field. The FILE is the status.** Sub-states (`INFERENCE`, `REPORTED`,
-`re-verify`) are a `Disposition:` inside `unverified-claims.md`.
+When `topics: true`, each `claims-data/<topic>/` is its own ledger with this same file-set. There is
+**no** frozen evidence directory and **no** per-project rubric file.
 
-**MOVE, never COPY.** An ID living in two files is this model's cardinal sin.
+**There is no `Status:` field. The FILE is the status.** **MOVE, never COPY** — an ID living in two
+files is this model's cardinal sin.
 
 ## Lint before you cite
 
@@ -102,5 +96,5 @@ Green lint is the precondition for citing this ledger in a findings doc, a PR, o
 
 ## Not a tracker
 
-No assignees. No due dates. No work-status. The moment an entry sprouts one, it's a shadow
-tracker — graduate it to a GitHub issue. This ledger records **what is true**, not **what to do**.
+No assignees. No due dates. No work-status. The moment an entry sprouts one, it's a shadow tracker —
+graduate it to a GitHub issue. This ledger records **what is true**, not **what to do**.
