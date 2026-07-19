@@ -119,6 +119,31 @@ def test_c_and_q_types_still_parse():
     assert L.ID_RE.match("PYC-FIG-C-001"), "legacy agent-first must still parse during migration"
 
 
+def test_no_index_expected_for_plain_root_ledger():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims="")
+        rc, out = _lint(claims)
+        assert "STALE_INDEX" not in out and rc == 0, out
+
+
+def test_index_expected_when_topics_present():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims="")
+        (claims / "tooling").mkdir()      # a topic subdir = custom content
+        rc, out = _lint(claims)
+        assert "STALE_INDEX" in out and rc == 1, out
+
+
+def test_defunct_evidencedir_key_warns_not_fails():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims="")   # empty ledger
+        (Path(tmp) / ".claude" / "ledger.json").write_text(
+            json.dumps({"enabled": True, "evidenceDir": "claims-data/evidence"}))
+        rc, out = _lint(claims)
+        assert "WARN_DEFUNCT_KEY" in out and "evidenceDir" in out, out
+        assert rc == 0, "a defunct key must WARN, never fail"
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

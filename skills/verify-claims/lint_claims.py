@@ -59,6 +59,11 @@ def load_config(claims_root):
         pass
     return cfg
 
+
+# Config keys the current schema recognizes. Anything else is defunct/unknown and WARNs
+# (never fails) — e.g. the retired `evidenceDir`. Migration of live configs is tracked in #27.
+KNOWN_KEYS = {"enabled", "dir", "prefix", "agentScoped", "topics", "testDir", "overloadedTerms"}
+
 # ---------------------------------------------------------------------------
 # ID grammar. Types are C and Q only (CC removed, #20).
 #
@@ -276,6 +281,9 @@ def main():
     repo_root = find_repo_root(root)   # for git-SHA drift checks; survives a per-topic ledger dir
 
     errors, warns = [], []
+    for k in sorted(set(cfg) - KNOWN_KEYS):
+        warns.append(("WARN_DEFUNCT_KEY", ".claude/ledger.json", 0,
+                      f"unknown/defunct config key '{k}' — remove it (migration tracked in #27)"))
     all_entries, by_id = [], defaultdict(list)
 
     for key, fname in ENTRY_FILES.items():
@@ -453,17 +461,25 @@ def main():
             if re.search(pat, e.statement, re.I):
                 warns.append(("WARN_SCREEN", fname, e.lineno, f"{e.id}: {why} — “{e.statement[:60]}”"))
 
-    # ---- index ----------------------------------------------------------------
+    # ---- index (only when the ledger carries topics or other custom files) -----
+    std = {f[:-3] for f in ENTRY_FILES.values()} | {"scratchpad", "INDEX"}
+    present = list(root.iterdir())
+    has_topic_dirs = any(p.is_dir() for p in present)
+    custom = has_topic_dirs or bool({p.stem for p in present} - std)
     idx_path = root / "INDEX.md"
-    fresh = build_index(all_entries)
-    if "--write-index" in flags:
-        idx_path.write_text(fresh, encoding="utf-8")
-        print(f"wrote {idx_path}")
-    else:
-        existing = idx_path.read_text(encoding="utf-8") if idx_path.exists() else ""
-        if existing.strip() != fresh.strip():
-            errors.append(("STALE_INDEX", "INDEX.md", 0,
-                           "INDEX.md disagrees with the entry files — run with --write-index"))
+    if custom:
+        fresh = build_index(all_entries)
+        if "--write-index" in flags:
+            idx_path.write_text(fresh, encoding="utf-8")
+            print(f"wrote {idx_path}")
+        else:
+            existing = idx_path.read_text(encoding="utf-8") if idx_path.exists() else ""
+            if existing.strip() != fresh.strip():
+                errors.append(("STALE_INDEX", "INDEX.md", 0,
+                               "INDEX.md disagrees with the entry files — run with --write-index"))
+    elif idx_path.exists():
+        warns.append(("WARN_STRAY_INDEX", "INDEX.md", 0,
+                      "INDEX.md present but ledger has no topics/custom files — it is not needed"))
 
     # ---- report ---------------------------------------------------------------
     for code, f, ln, msg in errors:
