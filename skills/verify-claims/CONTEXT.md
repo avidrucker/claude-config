@@ -1,103 +1,59 @@
-# verify-claims
+# verify-claims — maintainer notes
 
-The domain language of the verify-claims skill: the epistemic ledger, its on-disk shape, the
-claim/question lifecycles, and the vocabulary for pinning evidence. This glossary is authoritative
-for terms that are easy to conflate; it is not a spec.
+For agents **working on the verify-claims skill inside claude-config** — not for consumers. A consuming
+project's agent reads `SKILL.md` and looks terms up in `glossary.md`; neither is routed here. This file
+holds what you need to **change the skill without breaking it**, and nothing a consumer would read.
 
-## Language — structure
+> This deliberately is **not** a domain glossary — term definitions live once, in
+> [`glossary.md`](./glossary.md). If a future design session resolves a new term, put it there, not here.
 
-**Ledger**:
-One complete epistemic record — its lifecycle files and `scratchpad.md`, plus a generated
-`INDEX.md` **only when it carries topics or other custom files** — rooted at a single directory and
-git-excluded.
-_Avoid_: database, store, tracker (it is explicitly **not** a work tracker).
+## The two surfaces
 
-**Topic**:
-One bounded investigation held as its **own isolated Ledger** — its own lifecycle files and its
-own `INDEX.md`, kept separate from other investigations in the same repo. A Topic is a whole
-Ledger, **not** a tag or field on claims that share one Ledger. Topics are named for subdomains
-(pycats: `battle-graphics`, `battle-mechanics`, `tooling`, `user-interface`).
-_Avoid_: tag, label, category, subject.
+| Surface | Files | Reached by |
+|---|---|---|
+| **Consumer** (ships / read when the skill runs) | `SKILL.md`, `lint_claims.py` (run by path), `glossary.md` (linked from `SKILL.md`) | an agent invoking the skill in pycats / lccjs / pmtools / statecharts-py |
+| **Maintainer** (this repo only, never routed to a consumer) | `CONTEXT.md` (this file), `docs/adr/`, `test_lint_claims.py` | an agent editing the skill here |
 
-**Layout**:
-Whether a repo's `claims-data/` carries Topic Ledgers **in addition to** its root Ledger, selected
-by the boolean config key `topics`. `false` (default) = the root Ledger only. `true` = the root
-Ledger **plus** `claims-data/<topic>/` Ledgers alongside it — root holds **general** claims, each
-Topic holds **specific** ones. The filing location of each new Claim is the **user's** call (Claude
-may suggest; the user always decides). One `topics` setting per repo.
-_Avoid_: mode, structure, scheme.
+The skill dir is symlinked into `~/.claude/skills/` by `install.sh`. Only the consumer surface should
+grow a reader outside this repo.
 
-## Language — the claim lifecycle
+## Anti-drift map — where each fact lives, once
 
-**Claim**:
-A single falsifiable, objective assertion tracked through the lifecycle below. (In pmtools "claim"
-means staking a ticket — an overloaded term; here it is always an epistemic assertion.)
-_Avoid_: fact, finding, note, statement.
+Duplicating a fact is how it drifts. #24 was the rubric restated in a second file that fell out of sync.
+The rule: **one home per fact**; every other place links, never restates.
 
-**Draft**:
-A proposed Claim that Claude may add **freely, ungated**. Lives in `draft-claims.md`, carrying a
-**draft-local placeholder ID** (`d1`, `d2`, … — unique within `draft-claims.md` only). Not yet
-admitted to the Ledger proper; its real ID is minted only on promotion.
-_Avoid_: proposal, candidate.
+| Fact | Single home | Do not restate in |
+|---|---|---|
+| admission rubric (11 criteria) | `SKILL.md` | `claims-data/`, any per-project file |
+| linter codes + their fixes | `lint_claims.py` emits them; `glossary.md` glosses them | `SKILL.md` (name-list only, no glosses) |
+| term glosses (Claim, `Bears-on`, evidence kinds, pins) | `glossary.md` | `CONTEXT.md` |
+| config schema (the 7 keys) | `SKILL.md` | — |
+| design rationale (the *why*) | `docs/adr/` | `SKILL.md`/`CONTEXT.md` (link instead) |
 
-**Unverified**:
-A Draft a **human has approved at admission** into the work queue. Lives in `unverified-claims.md`.
-Its real ID (`<PREFIX>-<TYPE>-<NNN>[-<AGENT>]`) is minted at this move. Has, or is accumulating,
-pinned Evidence; not yet ratified.
+## Invariants any change must preserve
 
-**Treated-as-verified**:
-A **disposition on an Unverified claim** — it carries pinned Evidence and a provisional verdict
-(TRUE or FALSE) but still awaits **verification**. It stays in `unverified-claims.md`; it is not yet
-Verified.
-_Avoid_: provisional-verified, pending (use the exact term).
+- **Verified = a human judged it** — never "a machine matched evidence." Pinned evidence is necessary,
+  never sufficient.
+- **A decision is not a claim.** Enforced at three points: rubric criterion 9 (Descriptive), the
+  `statement` kind's weakness, and `WARN_SCREEN` (decision/opinion language). Keep all three.
+- **MOVE, never COPY** — an id in two files is `DUPLICATE_FILE`. The file *is* the status; there is no
+  `Status:` field.
+- **Evidence is kind-matched and SHA + date pinned** — four kinds (`reference`/`test`/`query`/
+  `statement`), no re-checkability tiers.
+- The ledger is **git-excluded** and resolved at the **MAIN checkout**, never inside a worktree.
 
-**Verified**:
-A Claim a **human has ratified by judgment**, at **verification**, as TRUE or FALSE. Lives in
-`verified-claims.md`. Only a human promotes here; pinned Evidence is necessary but never sufficient.
+## Changing the skill
 
-**Cancelled**:
-A Claim withdrawn at **any** stage once it has a real ID. Terminal, in `bad-claims.md`.
-`bad`/cancelled = never-askable or withdrawn (hygiene); distinct from **FALSE** = we asked and the
-answer was no. A FALSE claim is a *Verified* claim. (An abandoned pre-ID Draft is a silent discard,
-not a Cancellation — it never entered the Ledger proper.)
+- **Lint changes are TDD.** Add the failing case to `test_lint_claims.py` first (stdlib only, run with
+  `python3`), watch it fail, then implement. The suite is the acceptance gate.
+- **Add or rename a linter code** → update `glossary.md`'s code tables **and** `SKILL.md`'s code
+  name-list in the same change.
+- **Add or change a term** → `glossary.md` only.
+- **A hard-to-reverse design change with real trade-offs** → write an ADR in `docs/adr/` (see
+  [`0001`](./docs/adr/0001-ledger-lifecycle-and-evidence-model.md) for the model's rationale).
 
-**Admission / Verification**:
-The two **human-approved transitions** — nothing self-promotes across either. **Admission** =
-approval of a Draft into `unverified-claims.md`; the 11-criterion rubric applies here and the real
-ID is minted here. **Verification** = the judgment that ratifies an Unverified claim into
-`verified-claims.md` as TRUE or FALSE. Both are human acts; pinned Evidence is necessary but never
-sufficient.
+## Pointers
 
-## Language — questions & evidence
-
-**Question** lifecycle: **Open** (`open-questions.md`) → **Answered** (`answered-questions.md`),
-or **Cancelled** (`cancelled-questions.md`, withdrawn / won't-answer).
-
-**Evidence**:
-A reference pinned by **SHA + date** to a **named** project entity — **without line numbers**. The
-SHA+date is the as-of anchor; the name is the drift-tolerant locator. Its **kind matches the claim**:
-a source's *text* → a `reference` (file / function / heading); a *behavior* claim → a `test` (a
-**Claim test**); a *data* claim → a `query` (a pinned command + output). There is **no** frozen
-`evidence/` store and **no `E1/E2/E3` tiers**. Evidence is necessary for a Verified claim but is
-never itself the promoter (a human is — at verification). See **Statement** for non-reproducible
-signal.
-_Avoid_: proof, citation, source.
-
-**Statement**:
-A **WHO said/saw WHAT, WHEN** record — a decision-of-record, a report, or a one-off observation.
-**Non-reproducible signal**, weighted by the **WHO**: a decider's statement is authoritative for
-*that decision* (this is how a Question becomes Answered), but a statement about the world is only
-minor signal and **never** verifies a factual Claim on its own. Absorbs the retired `observation`
-and `attestation` kinds.
-_Avoid_: proof, attestation (retired as a distinct kind), evidence.
-
-**Claim test**:
-A **red-green, non-vacuous** test (or query) written to support a Claim, living in the project's
-code tree — either a dedicated `scratch/` dir or alongside the project's own tests (**user's
-choice**, set by `testDir`). Its **docstring restates the Claim in full** and carries the Claim ID,
-so it reads standalone without returning to `claims-data/`.
-_Avoid_: evidence file, fixture.
-
-**Pin**:
-The SHA + date that freezes an Evidence reference to a point in time — the answer to "true as of
-when?".
+- **Consumer guide / rubric / config schema:** [`SKILL.md`](./SKILL.md)
+- **Term lookup + linter codes:** [`glossary.md`](./glossary.md)
+- **Why the model is shaped this way:** [`docs/adr/`](./docs/adr/)

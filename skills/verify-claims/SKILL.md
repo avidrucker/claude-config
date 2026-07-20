@@ -363,6 +363,9 @@ Warnings: `WARN_KIND_MISMATCH` · `WARN_SAME_AUTHOR` · `WARN_SCREEN` (reject-pa
 decision/opinion language) · `WARN_UNSITUATED` · `WARN_BEARING_CHAIN` · `WARN_DRIFTED` ·
 `WARN_DEFUNCT_KEY` · `WARN_STRAY_INDEX`.
 
+Each code is glossed with its fix — and every term above (`Bears-on`, the evidence kinds, pins, `bad`
+vs `FALSE`) — in [`glossary.md`](./glossary.md). Look there first when a code or term is unfamiliar.
+
 ## Skip when
 
 - **Fewer than ~3 governed claims.** Cite inline and move on. A ledger is overkill.

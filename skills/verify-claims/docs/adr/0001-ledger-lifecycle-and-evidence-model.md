@@ -1,7 +1,7 @@
 # 0001 — Ledger lifecycle & evidence model for verify-claims
 
 - **Status:** accepted (2026-07-19)
-- **Decided in:** #23 (grill-with-docs + guide-human-decision session); evidence model refined during the #25 implementation grill (2026-07-19) · **Implemented by:** #25 · **Glossary:** [`../../CONTEXT.md`](../../CONTEXT.md)
+- **Decided in:** #23 (grill-with-docs + guide-human-decision session); evidence model refined during the #25 implementation grill (2026-07-19) · **Implemented by:** #25 · **Glossary:** [`../../glossary.md`](../../glossary.md)
 
 ## Context
 
