@@ -144,6 +144,81 @@ def test_defunct_evidencedir_key_warns_not_fails():
         assert rc == 0, "a defunct key must WARN, never fail"
 
 
+# ---- #22: widened prefix (absorbed from #17) -------------------------------
+
+def test_wide_prefix_parses():
+    assert L.ID_RE.match("PYCATS-C-001-CLAUDE"), "6-char prefix must parse"
+    assert L.ID_RE.match("PMTOOLS-C-001"), "7-char prefix must parse"
+    assert L.ID_RE.match("STATECHART-Q-003"), "10-char prefix must parse"
+
+
+def test_short_prefix_still_parses():
+    assert L.ID_RE.match("PYC-C-001-KIWI"), "existing short prefix must still parse"
+
+
+def test_dangling_ref_detected_for_wide_prefix():
+    # The ref-scanner must recognise a wide prefix too, or renamed refs silently stop being checked.
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _ledger(tmp, unverified_claims=(
+            "## PYCATS-C-001 — pmtools' `close` returns 0 on an empty store\n"
+            "**Rests-on.** PYCATS-C-999\n**Bears-on.** pmtools#96\n"))
+        rc, out = _lint(claims)
+        assert "DANGLING_REF" in out and "PYCATS-C-999" in out and rc == 1, out
+
+
+# ---- #22: BAD_CONFIG_TYPE — type-validate the 7 canonical keys --------------
+
+def _cfg_ledger(tmp, **cfg):
+    """An empty ledger whose repo carries a given ledger.json config dict."""
+    claims = _ledger(tmp, unverified_claims="")
+    (Path(tmp) / ".claude" / "ledger.json").write_text(json.dumps(cfg))
+    return claims
+
+
+def test_bad_config_type_bool_key():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _cfg_ledger(tmp, topics="true")           # str, must be bool
+        rc, out = _lint(claims)
+        assert "BAD_CONFIG_TYPE" in out and "topics" in out and rc == 1, out
+
+
+def test_bad_config_type_str_key():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _cfg_ledger(tmp, prefix=42)               # int, must be str-or-null
+        rc, out = _lint(claims)
+        assert "BAD_CONFIG_TYPE" in out and "prefix" in out and rc == 1, out
+
+
+def test_bad_config_type_overloaded_terms_not_list():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _cfg_ledger(tmp, overloadedTerms="close")  # str, must be list[str]
+        rc, out = _lint(claims)
+        assert "BAD_CONFIG_TYPE" in out and "overloadedTerms" in out and rc == 1, out
+
+
+def test_bad_config_type_overloaded_terms_non_str_item():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _cfg_ledger(tmp, overloadedTerms=["close", 7])  # list with a non-str item
+        rc, out = _lint(claims)
+        assert "BAD_CONFIG_TYPE" in out and "overloadedTerms" in out and rc == 1, out
+
+
+def test_null_is_allowed_for_nullable_keys():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _cfg_ledger(tmp, prefix=None, agentScoped=None, testDir=None)
+        rc, out = _lint(claims)
+        assert "BAD_CONFIG_TYPE" not in out and rc == 0, out
+
+
+def test_correct_config_types_pass():
+    with tempfile.TemporaryDirectory() as tmp:
+        claims = _cfg_ledger(tmp, enabled=True, dir="claims-data", prefix="PYC",
+                             agentScoped=False, topics=False, testDir="scratch",
+                             overloadedTerms=["close", "status"])
+        rc, out = _lint(claims)
+        assert "BAD_CONFIG_TYPE" not in out and rc == 0, out
+
+
 def test_draft_placeholder_ids_parse_and_dedupe():
     with tempfile.TemporaryDirectory() as tmp:
         claims = _ledger(tmp, draft_claims=(

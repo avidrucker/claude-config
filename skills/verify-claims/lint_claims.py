@@ -73,7 +73,7 @@ KNOWN_KEYS = {"enabled", "dir", "prefix", "agentScoped", "topics", "testDir", "o
 #   agent-first (legacy):       PYC-FIG-C-001
 # ---------------------------------------------------------------------------
 ID_RE = re.compile(
-    r"^(?P<prefix>[A-Z]{2,5})-"
+    r"^(?P<prefix>[A-Z]{2,10})-"
     r"(?:(?P<agent_first>[A-Z]{2,12})-)?"
     r"(?P<type>C|Q)-"
     r"(?P<num>\d{1,4})"
@@ -316,6 +316,21 @@ def main():
     for k in sorted(set(cfg) - KNOWN_KEYS):
         warns.append(("WARN_DEFUNCT_KEY", ".claude/ledger.json", 0,
                       f"unknown/defunct config key '{k}' — remove it (migration tracked in #27)"))
+    # Type-validate the known keys (#22). An unknown key only WARNs (above); a *known* key with the
+    # wrong value type ERRORs — e.g. topics: "true" (a string) silently reads as truthy. `null` is
+    # always allowed: it means "use the default". Values differ per repo; the schema shape may not.
+    for k in ("enabled", "agentScoped", "topics"):
+        if cfg.get(k) is not None and not isinstance(cfg[k], bool):
+            errors.append(("BAD_CONFIG_TYPE", ".claude/ledger.json", 0,
+                           f"'{k}' must be a boolean or null, got {type(cfg[k]).__name__}"))
+    for k in ("dir", "prefix", "testDir"):
+        if cfg.get(k) is not None and not isinstance(cfg[k], str):
+            errors.append(("BAD_CONFIG_TYPE", ".claude/ledger.json", 0,
+                           f"'{k}' must be a string or null, got {type(cfg[k]).__name__}"))
+    ot = cfg.get("overloadedTerms")
+    if ot is not None and not (isinstance(ot, list) and all(isinstance(x, str) for x in ot)):
+        errors.append(("BAD_CONFIG_TYPE", ".claude/ledger.json", 0,
+                       "'overloadedTerms' must be a list of strings or null"))
     all_entries, by_id = [], defaultdict(list)
 
     for key, fname in ENTRY_FILES.items():
@@ -377,7 +392,7 @@ def main():
             v = e.field(fld)
             if not v:
                 continue
-            for ref in re.findall(r"\b[A-Z]{2,5}(?:-[A-Z]{2,12})?-(?:C|Q)-\d{1,4}(?:-[A-Z]{2,12})?\b", v):
+            for ref in re.findall(r"\b[A-Z]{2,10}(?:-[A-Z]{2,12})?-(?:C|Q)-\d{1,4}(?:-[A-Z]{2,12})?\b", v):
                 if ref not in known and ref.split("-")[0] == e.prefix:
                     errors.append(("DANGLING_REF", ENTRY_FILES[e.file_key], e.lineno,
                                    f"{e.id}: {fld} points at {ref}, which does not exist"))
@@ -405,7 +420,7 @@ def main():
                 errors.append(("NO_BEARING", fname, e.lineno,
                                f"{e.id}: empty 'Bears-on' — name the fix / bug / feature / decision / "
                                f"concern this informs, or it is trivia. Drop it, or file it as a question."))
-            elif re.fullmatch(r"[A-Z]{2,5}(?:-[A-Z]{2,12})?-(?:C|Q)-\d{1,4}(?:-[A-Z]{2,12})?", bears.strip()):
+            elif re.fullmatch(r"[A-Z]{2,10}(?:-[A-Z]{2,12})?-(?:C|Q)-\d{1,4}(?:-[A-Z]{2,12})?", bears.strip()):
                 warns.append(("WARN_BEARING_CHAIN", fname, e.lineno,
                               f"{e.id}: 'Bears-on' points only at another ledger entry ({bears.strip()}). "
                               f"Chase it up — the chain must end at a fix, bug, feature, decision, or concern."))

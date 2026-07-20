@@ -54,8 +54,11 @@ as a legacy fallback; `ledger.json` wins where both exist.
 }
 ```
 
-The linter **WARNs (never fails) on any unknown key** — a defunct `evidenceDir` from the old model is
-named and ignored, not treated as an error.
+These **seven keys are the canonical schema** every repo shares — the key set and value types are
+identical across repos, only the values differ. The linter **WARNs (never fails) on any unknown key**
+— a defunct `evidenceDir` from the old model is named and ignored, not treated as an error — and
+**ERRORs (`BAD_CONFIG_TYPE`) on a known key with the wrong value type** (e.g. `topics: "true"` as a
+string). Nullable keys accept `null`, meaning "use the default".
 
 There is **no per-project rubric**. The admission rubric below lives in this skill and nowhere else;
 `claims-data/` carries no `rubric.md`.
@@ -350,7 +353,8 @@ inside `unverified-claims.md`, and there are exactly two:
 Cross-file checks are the load-bearing ones — *"this ID lives in two files"* is invisible to the eye:
 `DUPLICATE_FILE` · `DUP_NUMBER` · `WRONG_FILE` · `DANGLING_REF` · `STALE_INDEX` (only when an index is
 expected). Draft placeholders: `DUP_DRAFT_ID` · `DRAFT_ID_ONLY` (a real ID in drafts) ·
-`REAL_ID_REQUIRED` (a placeholder outside drafts).
+`REAL_ID_REQUIRED` (a placeholder outside drafts). Config: `BAD_CONFIG_TYPE` (a known key with the
+wrong value type).
 
 Per-entry: `NO_BEARING` · `NO_FALSIFIER` · `BAD_DISPOSITION` · `SHADOW_TRACKER`. Verified entries:
 `MISSING_VERDICT` · `MISSING_ENTAILS` · `NO_EVIDENCE` · `MISSING_PIN` · `PARITY_MISMATCH`.
